@@ -296,7 +296,7 @@ private fun Channel.toSummary(): SportsWallChannelSummary = SportsWallChannelSum
 private const val CHANNELS_DVR_MARKER = "sports-wall:channels-dvr:"
 
 internal fun SportsWallRecording.toChannel(): Channel {
-    SportsWallRecordingPolicy.validate(this)
+    val preferredRecording = SportsWallRecordingPolicy.preferNativeVideo(this)
     val stableId = -1_000_000_000L - (id.hashCode().toLong() and 0x7fff_ffffL)
     return Channel(
         id = stableId,
@@ -304,7 +304,7 @@ internal fun SportsWallRecording.toChannel(): Channel {
         canonicalName = title.trim(),
         groupTitle = CHANNELS_DVR_MARKER + id,
         categoryName = "Channels DVR",
-        streamUrl = playbackUrl,
+        streamUrl = preferredRecording.playbackUrl,
         providerId = 0L
     )
 }

@@ -12,6 +12,32 @@ class SportsWallRecordingPolicyTest {
     }
 
     @Test
+    fun rewritesMasterPlaylistToNativeVideoCopyPlaylist() {
+        val recording = SportsWallRecordingPolicy.preferNativeVideo(
+            SportsWallRecording("865", "Game", "http://10.217.0.120:8089/dvr/files/865/hls/master.m3u8")
+        )
+
+        assertThat(recording.playbackUrl).isEqualTo(
+            "http://10.217.0.120:8089/dvr/files/865/hls/stream.m3u8?acodec=aac&indexed=true&ssize=1&vcodec=copy"
+        )
+    }
+
+    @Test
+    fun rejectsUnapprovedNativePlaylistParameters() {
+        val error = runCatching {
+            SportsWallRecordingPolicy.validate(
+                SportsWallRecording(
+                    "865",
+                    "Game",
+                    "http://10.217.0.120:8089/dvr/files/865/hls/stream.m3u8?vcodec=copy"
+                )
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(SportsWallControlException::class.java)
+    }
+
+    @Test
     fun rejectsArbitraryLanUrl() {
         val error = runCatching {
             SportsWallRecordingPolicy.validate(

@@ -75,8 +75,7 @@ class ChannelsDvrClient @Inject constructor(
             title = recording.title,
             playbackUrl = "$baseUrl/dvr/files/${recording.id}/hls/master.m3u8"
         )
-        SportsWallRecordingPolicy.validate(result)
-        return result
+        return SportsWallRecordingPolicy.preferNativeVideo(result)
     }
 
     private fun recordingRows(root: JsonElement): JsonArray = when (root) {
