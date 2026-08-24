@@ -102,6 +102,18 @@ internal class SportsWallApiServer(
             }
         }
 
+        val recordingPaneMatch = RECORDING_PANE_PATH.matchEntire(path)
+        if (recordingPaneMatch != null && session.method == Method.PUT) {
+            val body = session.readJsonBody()
+            return success(
+                controller.assignRecording(
+                    recordingPaneMatch.groupValues[1].toInt(),
+                    body.requiredRecording(),
+                    body.launchRequested()
+                ).toJson()
+            )
+        }
+
         if (path == "/v1/audio" && session.method == Method.PUT) {
             val body = session.readJsonBody()
             val paneElement = body["pane"]
@@ -131,6 +143,10 @@ internal class SportsWallApiServer(
 
         if (path == "/v1/fullscreen" && session.method == Method.POST) {
             controller.openFullscreen(session.readJsonBody().requiredInt("pane"))
+            return success(buildJsonObject { put("status", "fullscreen_requested") })
+        }
+        if (path == "/v1/recordings/fullscreen" && session.method == Method.POST) {
+            controller.openRecordingFullscreen(session.readJsonBody().requiredRecording())
             return success(buildJsonObject { put("status", "fullscreen_requested") })
         }
         if (path == "/v1/restore" && session.method == Method.POST) {
@@ -180,6 +196,12 @@ internal class SportsWallApiServer(
         ?.takeIf { it.isNotBlank() }
         ?: throw SportsWallControlException("missing_$key", "The $key field must be a non-empty string")
 
+    private fun JsonObject.requiredRecording(): SportsWallRecording = SportsWallRecording(
+        id = requiredString("recordingId"),
+        title = requiredString("title"),
+        playbackUrl = requiredString("playbackUrl")
+    )
+
     private fun JsonObject.launchRequested(): Boolean = get("launch")?.jsonPrimitive?.booleanOrNull ?: true
 
     private fun success(payload: JsonElement): Response = jsonResponse(Response.Status.OK, payload)
@@ -208,6 +230,7 @@ internal class SportsWallApiServer(
         private const val BIND_ADDRESS = "0.0.0.0"
         private const val MAX_BODY_BYTES = 16 * 1024
         private val PANE_PATH = Regex("/v1/panes/([1-4])")
+        private val RECORDING_PANE_PATH = Regex("/v1/panes/([1-4])/recording")
         private val PRESET_PATH = Regex("/v1/presets/([1-3])/(save|load)")
     }
 }
@@ -218,6 +241,8 @@ private fun SportsWallChannelSummary.toJson(): JsonObject = buildJsonObject {
     put("number", number)
     if (category == null) put("category", JsonNull) else put("category", category)
     put("providerId", providerId)
+    put("sourceType", sourceType)
+    if (sourceId == null) put("sourceId", JsonNull) else put("sourceId", sourceId)
 }
 
 private fun SportsWallState.toJson(): JsonObject = buildJsonObject {

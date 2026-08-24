@@ -22,7 +22,15 @@ data class SportsWallChannelSummary(
     val name: String,
     val number: Int,
     val category: String?,
-    val providerId: Long
+    val providerId: Long,
+    val sourceType: String = "live_channel",
+    val sourceId: String? = null
+)
+
+data class SportsWallRecording(
+    val id: String,
+    val title: String,
+    val playbackUrl: String
 )
 
 data class SportsWallPaneState(
@@ -47,12 +55,14 @@ interface SportsWallControlPort {
     suspend fun searchChannels(query: String, limit: Int): List<SportsWallChannelSummary>
     suspend fun setLayout(channelIds: List<Long?>, launch: Boolean): SportsWallState
     suspend fun assignPane(pane: Int, channelId: Long, launch: Boolean): SportsWallState
+    suspend fun assignRecording(pane: Int, recording: SportsWallRecording, launch: Boolean): SportsWallState
     suspend fun clearPane(pane: Int): SportsWallState
     suspend fun selectAudioPane(pane: Int?): SportsWallState
     suspend fun setPerformanceMode(mode: String): SportsWallState
     suspend fun savePreset(preset: Int): SportsWallState
     suspend fun loadPreset(preset: Int, launch: Boolean): SportsWallState
     suspend fun openFullscreen(pane: Int)
+    suspend fun openRecordingFullscreen(recording: SportsWallRecording)
     fun restoreMultiView()
 }
 
@@ -124,6 +134,19 @@ class SportsWallController @Inject constructor(
         return state()
     }
 
+    override suspend fun assignRecording(
+        pane: Int,
+        recording: SportsWallRecording,
+        launch: Boolean
+    ): SportsWallState {
+        val slotIndex = pane.toSlotIndex()
+        val channel = recording.toChannel()
+        multiViewManager.setChannel(slotIndex, channel)
+        multiViewManager.setFocusedSlot(slotIndex)
+        if (launch) restoreMultiView()
+        return state()
+    }
+
     override suspend fun clearPane(pane: Int): SportsWallState {
         multiViewManager.clearSlot(pane.toSlotIndex())
         return state()
@@ -151,6 +174,12 @@ class SportsWallController @Inject constructor(
     }
 
     override suspend fun savePreset(preset: Int): SportsWallState {
+        if (multiViewManager.slots.value.any { it?.isChannelsDvrRecording() == true }) {
+            throw SportsWallControlException(
+                "recording_not_presettable",
+                "Channels DVR recordings are temporary wall sources and cannot be saved in presets"
+            )
+        }
         val index = preset.toPresetIndex()
         preferencesRepository.setMultiViewPreset(
             index,
@@ -173,7 +202,34 @@ class SportsWallController @Inject constructor(
     override suspend fun openFullscreen(pane: Int) {
         val channel = multiViewManager.slots.value[pane.toSlotIndex()]
             ?: throw SportsWallControlException("empty_pane", "Cannot fullscreen an empty pane")
-        val request = Routes.livePlayer(channel, returnRoute = Routes.MULTI_VIEW)
+        val request = if (channel.isChannelsDvrRecording()) {
+            Routes.player(
+                streamUrl = channel.streamUrl,
+                title = channel.name,
+                internalId = channel.id,
+                contentType = "VOD",
+                returnRoute = Routes.MULTI_VIEW
+            )
+        } else {
+            Routes.livePlayer(channel, returnRoute = Routes.MULTI_VIEW)
+        }
+        startPlayer(request)
+    }
+
+    override suspend fun openRecordingFullscreen(recording: SportsWallRecording) {
+        val channel = recording.toChannel()
+        startPlayer(
+            Routes.player(
+                streamUrl = channel.streamUrl,
+                title = channel.name,
+                internalId = channel.id,
+                contentType = "VOD",
+                returnRoute = Routes.MULTI_VIEW
+            )
+        )
+    }
+
+    private fun startPlayer(request: com.streamvault.app.navigation.PlayerNavigationRequest) {
         context.startActivity(
             Intent(context, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_PLAYER_REQUEST, request)
@@ -232,5 +288,29 @@ private fun Channel.toSummary(): SportsWallChannelSummary = SportsWallChannelSum
     name = name,
     number = number,
     category = categoryName ?: groupTitle,
-    providerId = providerId
+    providerId = providerId,
+    sourceType = if (isChannelsDvrRecording()) "channels_recording" else "live_channel",
+    sourceId = channelsDvrRecordingId()
 )
+
+private const val CHANNELS_DVR_MARKER = "sports-wall:channels-dvr:"
+
+private fun SportsWallRecording.toChannel(): Channel {
+    SportsWallRecordingPolicy.validate(this)
+    val stableId = -1_000_000_000L - (id.hashCode().toLong() and 0x7fff_ffffL)
+    return Channel(
+        id = stableId,
+        name = title.trim(),
+        canonicalName = title.trim(),
+        groupTitle = CHANNELS_DVR_MARKER + id,
+        categoryName = "Channels DVR",
+        streamUrl = playbackUrl,
+        providerId = 0L
+    )
+}
+
+private fun Channel.isChannelsDvrRecording(): Boolean = groupTitle?.startsWith(CHANNELS_DVR_MARKER) == true
+
+private fun Channel.channelsDvrRecordingId(): String? = groupTitle
+    ?.takeIf { it.startsWith(CHANNELS_DVR_MARKER) }
+    ?.removePrefix(CHANNELS_DVR_MARKER)
