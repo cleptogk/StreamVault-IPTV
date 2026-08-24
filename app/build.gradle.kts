@@ -27,21 +27,30 @@ if (localPropertiesFile.exists()) {
 
 fun localProp(key: String): String = localProperties.getProperty(key, "")
 
-fun computeOfficialSigningCertSha256(): String {
-    if (!keystorePropertiesFile.exists()) return ""
+val releaseStorePath = providers.environmentVariable("SPORTS_WALL_STORE_FILE").orNull
+    ?: keystoreProperties.getProperty("storeFile").orEmpty()
+val releaseStorePassword = providers.environmentVariable("SPORTS_WALL_STORE_PASSWORD").orNull
+    ?: keystoreProperties.getProperty("storePassword").orEmpty()
+val releaseKeyAlias = providers.environmentVariable("SPORTS_WALL_KEY_ALIAS").orNull
+    ?: keystoreProperties.getProperty("keyAlias").orEmpty()
+val releaseKeyPassword = providers.environmentVariable("SPORTS_WALL_KEY_PASSWORD").orNull
+    ?: keystoreProperties.getProperty("keyPassword").orEmpty()
+val releaseStoreFile = releaseStorePath.takeIf(String::isNotBlank)?.let(rootProject::file)
+val hasReleaseSigning = releaseStoreFile?.exists() == true &&
+    releaseStorePassword.isNotBlank() &&
+    releaseKeyAlias.isNotBlank() &&
+    releaseKeyPassword.isNotBlank()
 
-    val storePath = keystoreProperties.getProperty("storeFile") ?: return ""
-    val storePassword = keystoreProperties.getProperty("storePassword") ?: return ""
-    val keyAlias = keystoreProperties.getProperty("keyAlias") ?: return ""
-    val storeFile = rootProject.file(storePath)
-    if (!storeFile.exists()) return ""
+fun computeOfficialSigningCertSha256(): String {
+    if (!hasReleaseSigning) return ""
+    val storeFile = requireNotNull(releaseStoreFile)
 
     val keyStore = KeyStore.getInstance("JKS")
     storeFile.inputStream().use { input ->
-        keyStore.load(input, storePassword.toCharArray())
+        keyStore.load(input, releaseStorePassword.toCharArray())
     }
 
-    val certificate = keyStore.getCertificate(keyAlias) ?: return ""
+    val certificate = keyStore.getCertificate(releaseKeyAlias) ?: return ""
     return MessageDigest.getInstance("SHA-256")
         .digest(certificate.encoded)
         .joinToString(":") { byte -> "%02X".format(byte) }
@@ -54,16 +63,16 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.streamvault.app"
+        applicationId = "com.cleptogk.streamvault.sportswall"
         minSdk = 25
         targetSdk = 36
-        versionCode = 18
-        versionName = "1.0.17"
+        versionCode = 1_000_018
+        versionName = "1.0.17.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         providers.gradleProperty("compatApi").orNull?.let { expectedApi ->
             testInstrumentationRunnerArguments["expected_api"] = expectedApi
         }
-        buildConfigField("String", "OFFICIAL_APPLICATION_ID", "\"com.streamvault.app\"")
+        buildConfigField("String", "OFFICIAL_APPLICATION_ID", "\"com.cleptogk.streamvault.sportswall\"")
         buildConfigField("String", "OFFICIAL_SIGNING_CERT_SHA256", "\"$officialSigningCertSha256\"")
         buildConfigField("String", "APP_UPDATE_CHANNEL", "\"stable\"")
         buildConfigField("long", "BUILD_TIMESTAMP_UTC", "0L")
@@ -86,12 +95,12 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (hasReleaseSigning) {
             create("release") {
-                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -117,7 +126,7 @@ android {
             // Keep beta close to release behavior but faster for CI/test distribution.
             isMinifyEnabled = false
             isShrinkResources = false
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
             matchingFallbacks += listOf("release")
@@ -129,7 +138,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
