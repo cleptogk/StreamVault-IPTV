@@ -56,6 +56,10 @@ class PlayerTrackController(
             .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
             .setPreferredAudioLanguage(preferredAudioLanguageTag)
             .setViewportSizeToPhysicalDisplaySize(context, true)
+            // MAXIMUM mode is an explicit quality choice for a wired Shield sports wall.
+            // Keep adaptive playback in other modes, but start each MAXIMUM pane at the
+            // highest rendition that survives the 1080p and network constraints below.
+            .setForceHighestSupportedBitrate(multiViewMaxVideoHeight != null)
             .apply {
                 resolvedMaxVideoHeightForCurrentNetwork(
                     constrainResolutionForMultiView,

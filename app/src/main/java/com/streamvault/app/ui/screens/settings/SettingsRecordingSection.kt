@@ -18,6 +18,12 @@ internal fun LazyListScope.settingsRecordingSection(
     onShowRecordingBrowserDialogChange: (Boolean) -> Unit
 ) {
     item {
+        ChannelsDvrServerCard(
+            savedAddress = uiState.channelsDvrServerAddress,
+            onSave = viewModel::setChannelsDvrServerAddress
+        )
+    }
+    item {
         RecordingInfoCard(
             treeLabel = uiState.recordingStorageState.displayName,
             outputDirectory = uiState.recordingStorageState.outputDirectory,

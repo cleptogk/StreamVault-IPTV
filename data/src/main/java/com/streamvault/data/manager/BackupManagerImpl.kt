@@ -248,6 +248,7 @@ class BackupManagerImpl @Inject constructor(
                 put("multiViewPerformanceMode", preferencesRepository.multiViewPerformanceMode.first().orEmpty())
                 put("multiViewCenterTwoSlotLayout", preferencesRepository.multiViewCenterTwoSlotLayout.first().toString())
                 put("multiViewRespectProviderConnectionLimit", preferencesRepository.multiViewRespectProviderConnectionLimit.first().toString())
+                put("channelsDvrServerAddress", preferencesRepository.channelsDvrServerAddress.first())
                 put("preferredAudioLanguage", preferencesRepository.preferredAudioLanguage.first() ?: "auto")
                 put("playerSubtitleTextScale", preferencesRepository.playerSubtitleTextScale.first().toString())
                 put("playerSubtitleTextColor", preferencesRepository.playerSubtitleTextColor.first().toString())
@@ -3181,6 +3182,7 @@ class BackupManagerImpl @Inject constructor(
             put("multiViewPerformanceMode", preferencesRepository.multiViewPerformanceMode.first().orEmpty())
             put("multiViewCenterTwoSlotLayout", preferencesRepository.multiViewCenterTwoSlotLayout.first().toString())
             put("multiViewRespectProviderConnectionLimit", preferencesRepository.multiViewRespectProviderConnectionLimit.first().toString())
+            put("channelsDvrServerAddress", preferencesRepository.channelsDvrServerAddress.first())
             put("preferredAudioLanguage", preferencesRepository.preferredAudioLanguage.first() ?: "auto")
             put("playerSubtitleTextScale", preferencesRepository.playerSubtitleTextScale.first().toString())
             put("playerSubtitleTextColor", preferencesRepository.playerSubtitleTextColor.first().toString())
@@ -3757,6 +3759,7 @@ class BackupManagerImpl @Inject constructor(
             ?.let { preferencesRepository.setMultiViewCenterTwoSlotLayout(it) }
         prefs["multiViewRespectProviderConnectionLimit"]?.toBooleanStrictOrNull()
             ?.let { preferencesRepository.setMultiViewRespectProviderConnectionLimit(it) }
+        prefs["channelsDvrServerAddress"]?.let { preferencesRepository.setChannelsDvrServerAddress(it) }
         preferencesRepository.setPreferredAudioLanguage(prefs["preferredAudioLanguage"])
         prefs["playerSubtitleTextScale"]?.toFloatOrNull()?.let { preferencesRepository.setPlayerSubtitleTextScale(it) }
         prefs["playerSubtitleTextColor"]?.toIntOrNull()?.let { preferencesRepository.setPlayerSubtitleTextColor(it) }

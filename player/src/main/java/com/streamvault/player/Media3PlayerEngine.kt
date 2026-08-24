@@ -1387,6 +1387,11 @@ class Media3PlayerEngine @Inject constructor(
                 decoderReuseEvaluation: DecoderReuseEvaluation?
             ) {
                 statsCollector.onVideoFormatChanged(format)
+                Log.i(
+                    TAG,
+                    "video-format width=${format.width} height=${format.height} bitrate=${format.bitrate} " +
+                        "frameRate=${format.frameRate}"
+                )
                 refreshKnownBadCompatibilityRecords()
             }
 
@@ -2067,12 +2072,12 @@ class Media3PlayerEngine @Inject constructor(
         )
     }
 
-    private fun isCurrentStreamLive(): Boolean = currentResolvedStreamType in setOf(
+    private fun isCurrentStreamLive(): Boolean = lastStreamInfo?.isLive ?: (currentResolvedStreamType in setOf(
         ResolvedStreamType.HLS,
         ResolvedStreamType.SMOOTH_STREAMING,
         ResolvedStreamType.MPEG_TS_LIVE,
         ResolvedStreamType.RTSP
-    )
+    ))
 
     private fun handleAudioRendererIssue(error: Exception, source: String) {
         val streamInfo = lastStreamInfo
@@ -2110,8 +2115,16 @@ class Media3PlayerEngine @Inject constructor(
 
         lastAudioRendererRecoveryAtMs = now
         val wasPlaying = exoPlayer?.playWhenReady ?: true
+        val isTimestampDiscontinuity = source == "audio-sink" &&
+            error.message?.contains("timestamp discontinuity", ignoreCase = true) == true
         val seekPosition = exoPlayer?.currentPosition
-            ?.takeIf { currentResolvedStreamType == ResolvedStreamType.PROGRESSIVE && it > 0L }
+            ?.takeIf { !isCurrentStreamLive() && it > 0L }
+            ?.let { position ->
+                // Some Channels DVR HLS recordings contain an unmarked multi-second AAC
+                // timestamp jump. Resume beyond that boundary instead of reopening the
+                // recording at its start and hitting the same sink exception again.
+                if (isTimestampDiscontinuity) position + 5_000L else position
+            }
 
         Log.w(
             TAG,

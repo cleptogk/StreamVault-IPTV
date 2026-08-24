@@ -224,6 +224,7 @@ class PreferencesRepository @Inject constructor(
         val MULTIVIEW_CENTER_TWO_SLOT_LAYOUT = booleanPreferencesKey("multiview_center_two_slot_layout")
         val MULTIVIEW_RESPECT_PROVIDER_CONNECTION_LIMIT =
             booleanPreferencesKey("multiview_respect_provider_connection_limit")
+        val CHANNELS_DVR_SERVER_ADDRESS = stringPreferencesKey("channels_dvr_server_address")
         val IS_INCOGNITO_MODE = booleanPreferencesKey("is_incognito_mode")
         val PLAYER_MUTED = booleanPreferencesKey("player_muted")
         val PLAYER_MEDIA_SESSION_ENABLED = booleanPreferencesKey("player_media_session_enabled")
@@ -2208,6 +2209,20 @@ class PreferencesRepository @Inject constructor(
     suspend fun setMultiViewPerformanceMode(mode: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.MULTIVIEW_PERFORMANCE_MODE] = mode
+        }
+    }
+
+    val channelsDvrServerAddress: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.CHANNELS_DVR_SERVER_ADDRESS].orEmpty()
+    }
+
+    suspend fun setChannelsDvrServerAddress(address: String) {
+        context.dataStore.edit { preferences ->
+            if (address.isBlank()) {
+                preferences.remove(PreferencesKeys.CHANNELS_DVR_SERVER_ADDRESS)
+            } else {
+                preferences[PreferencesKeys.CHANNELS_DVR_SERVER_ADDRESS] = address
+            }
         }
     }
 

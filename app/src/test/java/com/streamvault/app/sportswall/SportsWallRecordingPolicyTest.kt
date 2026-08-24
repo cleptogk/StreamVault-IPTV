@@ -30,4 +30,19 @@ class SportsWallRecordingPolicyTest {
         }.exceptionOrNull()
         assertThat(error).isInstanceOf(SportsWallControlException::class.java)
     }
+
+    @Test
+    fun normalizesPrivateChannelsDvrServerAddress() {
+        assertThat(ChannelsDvrAddressPolicy.normalize("http://10.217.0.120:8089/"))
+            .isEqualTo("http://10.217.0.120:8089")
+    }
+
+    @Test
+    fun rejectsChannelsDvrAddressWithUnexpectedPathOrPort() {
+        assertThat(
+            runCatching {
+                ChannelsDvrAddressPolicy.normalize("http://10.217.0.120:8090/api/v1/episodes")
+            }.exceptionOrNull()
+        ).isInstanceOf(IllegalArgumentException::class.java)
+    }
 }

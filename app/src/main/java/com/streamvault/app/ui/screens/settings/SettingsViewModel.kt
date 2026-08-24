@@ -15,6 +15,7 @@ import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.app.update.AppUpdateInstaller
+import com.streamvault.app.sportswall.ChannelsDvrAddressPolicy
 import com.streamvault.app.update.GitHubReleaseChecker
 import com.streamvault.app.update.isRemoteVersionNewer
 import com.streamvault.data.local.dao.ProgramDao
@@ -202,6 +203,11 @@ class SettingsViewModel @Inject constructor(
     init {
         refreshCrashReport()
         registerPreferenceObservers()
+        viewModelScope.launch {
+            preferencesRepository.channelsDvrServerAddress.collect { address ->
+                _uiState.update { it.copy(channelsDvrServerAddress = address) }
+            }
+        }
         registerXtreamIndexJobObserver()
         registerXtreamLiveOnboardingObserver()
         registerSettingsAppUpdateObservers(
@@ -765,6 +771,21 @@ class SettingsViewModel @Inject constructor(
     fun setMultiViewRespectProviderConnectionLimit(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setMultiViewRespectProviderConnectionLimit(enabled)
+        }
+    }
+
+    fun setChannelsDvrServerAddress(address: String) {
+        viewModelScope.launch {
+            runCatching { ChannelsDvrAddressPolicy.normalize(address) }
+                .onSuccess { normalized ->
+                    preferencesRepository.setChannelsDvrServerAddress(normalized)
+                    _uiState.update { it.copy(userMessage = "Channels DVR address saved") }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(userMessage = error.message ?: "Invalid Channels DVR address")
+                    }
+                }
         }
     }
 

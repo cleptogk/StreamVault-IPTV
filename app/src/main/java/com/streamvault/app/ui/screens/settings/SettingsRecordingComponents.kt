@@ -58,6 +58,54 @@ import com.streamvault.domain.model.RecordingStatus
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 
 @Composable
+internal fun ChannelsDvrServerCard(
+    savedAddress: String,
+    onSave: (String) -> Unit
+) {
+    var address by remember(savedAddress) { mutableStateOf(savedAddress) }
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        colors = SurfaceDefaults.colors(containerColor = Color.White.copy(alpha = 0.05f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Channels DVR", style = MaterialTheme.typography.titleMedium, color = OnBackground)
+            Text(
+                "Server used to browse and play Channels recordings in Split Screen.",
+                style = MaterialTheme.typography.bodySmall,
+                color = OnSurfaceDim
+            )
+            BasicTextField(
+                value = address,
+                onValueChange = { address = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = OnBackground),
+                singleLine = true,
+                cursorBrush = SolidColor(Primary),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (address.isBlank()) {
+                            Text("http://10.217.0.120:8089", color = OnSurfaceDim)
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+            RecordingActionButton(
+                label = "Save DVR server",
+                accent = Primary,
+                onClick = { onSave(address) }
+            )
+        }
+    }
+}
+
+@Composable
 internal fun RecordingMetaPill(label: String, value: String) {
     Column(
         modifier = Modifier
@@ -141,4 +189,3 @@ internal fun formatRecordingFailureCategory(category: RecordingFailureCategory):
     RecordingFailureCategory.PROVIDER_LIMIT -> "Connection limit"
     RecordingFailureCategory.UNKNOWN -> "Unknown"
 }
-

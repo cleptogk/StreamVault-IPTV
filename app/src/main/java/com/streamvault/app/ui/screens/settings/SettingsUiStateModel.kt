@@ -141,6 +141,7 @@ data class SettingsUiState(
     val wifiOnlyRecording: Boolean = false,
     val recordingPaddingBeforeMinutes: Int = 0,
     val recordingPaddingAfterMinutes: Int = 0,
+    val channelsDvrServerAddress: String = "",
     val isIncognitoMode: Boolean = false,
     val useXtreamTextClassification: Boolean = true,
     val xtreamBase64TextCompatibility: Boolean = false,

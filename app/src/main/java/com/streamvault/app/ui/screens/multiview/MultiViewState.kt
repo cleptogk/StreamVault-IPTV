@@ -2,6 +2,7 @@ package com.streamvault.app.ui.screens.multiview
 
 import com.streamvault.domain.model.Channel
 import com.streamvault.player.PlayerEngine
+import com.streamvault.app.sportswall.ChannelsDvrRecording
 
 enum class DevicePerformanceTier {
     LOW,
@@ -76,9 +77,19 @@ data class MultiViewUiState(
     val pinnedAudioSlotIndex: Int? = null,
     val replacementCandidates: List<Channel> = emptyList(),
     val pickerState: MultiViewPickerState = MultiViewPickerState(),
+    val dvrPickerState: ChannelsDvrPickerState = ChannelsDvrPickerState(),
     val performancePolicy: MultiViewPerformancePolicyUiModel = MultiViewPerformancePolicyUiModel(),
     val telemetry: MultiViewTelemetryUiModel = MultiViewTelemetryUiModel(),
     val parentalControlLevel: Int = 0
+)
+
+data class ChannelsDvrPickerState(
+    val serverAddress: String = "",
+    val recordings: List<ChannelsDvrRecording> = emptyList(),
+    val filteredRecordings: List<ChannelsDvrRecording> = emptyList(),
+    val searchQuery: String = "",
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null
 )
 
 data class MultiViewPresetUiModel(

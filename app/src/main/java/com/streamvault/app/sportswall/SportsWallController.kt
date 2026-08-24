@@ -295,7 +295,7 @@ private fun Channel.toSummary(): SportsWallChannelSummary = SportsWallChannelSum
 
 private const val CHANNELS_DVR_MARKER = "sports-wall:channels-dvr:"
 
-private fun SportsWallRecording.toChannel(): Channel {
+internal fun SportsWallRecording.toChannel(): Channel {
     SportsWallRecordingPolicy.validate(this)
     val stableId = -1_000_000_000L - (id.hashCode().toLong() and 0x7fff_ffffL)
     return Channel(

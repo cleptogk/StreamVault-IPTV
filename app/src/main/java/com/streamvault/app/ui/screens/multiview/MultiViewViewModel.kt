@@ -7,6 +7,10 @@ import android.os.PowerManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.di.AuxiliaryPlayerEngine
+import com.streamvault.app.sportswall.ChannelsDvrAddressPolicy
+import com.streamvault.app.sportswall.ChannelsDvrClient
+import com.streamvault.app.sportswall.ChannelsDvrRecording
+import com.streamvault.app.sportswall.toChannel
 import com.streamvault.app.ui.model.associateByAnyRawId
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.manager.ParentalControlManager
@@ -47,7 +51,8 @@ class MultiViewViewModel @Inject constructor(
     private val playbackHistoryRepository: PlaybackHistoryRepository,
     private val providerRepository: ProviderRepository,
     private val parentalControlManager: ParentalControlManager,
-    private val unlockParentalCategory: UnlockParentalCategory
+    private val unlockParentalCategory: UnlockParentalCategory,
+    private val channelsDvrClient: ChannelsDvrClient
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MultiViewUiState())
@@ -80,6 +85,13 @@ class MultiViewViewModel @Inject constructor(
     private val playerEngines = mutableMapOf<Int, PlayerEngine>()
 
     init {
+        viewModelScope.launch {
+            preferencesRepository.channelsDvrServerAddress.collect { address ->
+                _uiState.value = _uiState.value.copy(
+                    dvrPickerState = _uiState.value.dvrPickerState.copy(serverAddress = address)
+                )
+            }
+        }
         viewModelScope.launch {
             multiViewManager.slots.drop(1).collect {
                 if (playbackSessionActive) restartPlaybackIfActive()
@@ -448,6 +460,88 @@ class MultiViewViewModel @Inject constructor(
     fun replaceFocusedSlot(channel: Channel) {
         val slotIndex = _uiState.value.focusedSlotIndex
         multiViewManager.setChannel(slotIndex, channel)
+    }
+
+    fun saveChannelsDvrServerAddress(address: String) {
+        viewModelScope.launch {
+            runCatching { ChannelsDvrAddressPolicy.normalize(address) }
+                .onSuccess { normalized ->
+                    preferencesRepository.setChannelsDvrServerAddress(normalized)
+                    _uiState.value = _uiState.value.copy(
+                        dvrPickerState = _uiState.value.dvrPickerState.copy(
+                            serverAddress = normalized,
+                            errorMessage = null
+                        )
+                    )
+                    loadChannelsDvrRecordings()
+                }
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        dvrPickerState = _uiState.value.dvrPickerState.copy(
+                            errorMessage = error.message ?: "Invalid Channels DVR address"
+                        )
+                    )
+                }
+        }
+    }
+
+    fun loadChannelsDvrRecordings() {
+        val address = _uiState.value.dvrPickerState.serverAddress
+        if (address.isBlank()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                dvrPickerState = _uiState.value.dvrPickerState.copy(isLoading = true, errorMessage = null)
+            )
+            runCatching { channelsDvrClient.listRecordings(address) }
+                .onSuccess { recordings ->
+                    _uiState.value = _uiState.value.copy(
+                        dvrPickerState = _uiState.value.dvrPickerState.copy(
+                            recordings = recordings,
+                            filteredRecordings = filterDvrRecordings(
+                                recordings,
+                                _uiState.value.dvrPickerState.searchQuery
+                            ),
+                            isLoading = false
+                        )
+                    )
+                }
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        dvrPickerState = _uiState.value.dvrPickerState.copy(
+                            isLoading = false,
+                            errorMessage = error.message ?: "Could not load Channels DVR recordings"
+                        )
+                    )
+                }
+        }
+    }
+
+    fun updateChannelsDvrSearch(query: String) {
+        val state = _uiState.value.dvrPickerState
+        _uiState.value = _uiState.value.copy(
+            dvrPickerState = state.copy(
+                searchQuery = query,
+                filteredRecordings = filterDvrRecordings(state.recordings, query)
+            )
+        )
+    }
+
+    fun replaceFocusedSlotWithRecording(recording: ChannelsDvrRecording) {
+        val state = _uiState.value.dvrPickerState
+        val channel = channelsDvrClient.toSportsWallRecording(state.serverAddress, recording).toChannel()
+        replaceFocusedSlot(channel)
+    }
+
+    private fun filterDvrRecordings(
+        recordings: List<ChannelsDvrRecording>,
+        query: String
+    ): List<ChannelsDvrRecording> = if (query.isBlank()) {
+        recordings
+    } else {
+        recordings.filter { recording ->
+            recording.title.contains(query, ignoreCase = true) ||
+                recording.subtitle?.contains(query, ignoreCase = true) == true
+        }
     }
 
     fun removeFocusedSlot() {

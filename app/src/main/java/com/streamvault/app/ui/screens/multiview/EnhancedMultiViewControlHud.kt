@@ -34,6 +34,7 @@ internal fun EnhancedMultiViewControlHud(
     uiState: MultiViewUiState,
     firstControlFocusRequester: FocusRequester,
     onShowReplacementPicker: () -> Unit,
+    onShowDvrPicker: () -> Unit,
     onRemoveFocusedSlot: () -> Unit,
     onClearPinnedAudio: () -> Unit,
     onPinAudioToFocusedSlot: () -> Unit,
@@ -136,6 +137,17 @@ internal fun EnhancedMultiViewControlHud(
                 )
             ) {
                 Text(stringResource(R.string.multiview_replace_slot))
+            }
+            TvButton(
+                onClick = onShowDvrPicker,
+                colors = ButtonDefaults.colors(
+                    containerColor = Color(0xFF203A5C),
+                    contentColor = Color.White,
+                    focusedContainerColor = Color.White,
+                    focusedContentColor = Color.Black
+                )
+            ) {
+                Text("DVR Recording")
             }
             TvButton(
                 onClick = onRemoveFocusedSlot,
