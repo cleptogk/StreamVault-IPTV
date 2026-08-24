@@ -310,6 +310,8 @@ class MultiViewViewModel @Inject constructor(
                                     MultiViewPerformanceMode.MAXIMUM
                                 it.constrainResolutionForMultiView = !maximumMode
                                 it.multiViewMaxVideoHeight = if (maximumMode) 1080 else null
+                                it.constrainVodBufferForMultiView = true
+                                it.maxLiveStallReconnectAttempts = 3
                                 it.bypassAudioFocus = true
                                 it.enableMediaSession = false
                             }

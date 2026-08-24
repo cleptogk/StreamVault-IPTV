@@ -47,6 +47,26 @@ class PlaybackStallRecoveryPolicyTest {
     }
 
     @Test
+    fun `sports wall may use three bounded same-slot reconnect attempts`() {
+        assertThat(
+            shouldReconnectLiveStall(
+                playbackState = PlaybackState.READY,
+                resolvedStreamType = ResolvedStreamType.HLS,
+                recoveryAttempt = 3,
+                maxAttempts = 3
+            )
+        ).isTrue()
+        assertThat(
+            shouldReconnectLiveStall(
+                playbackState = PlaybackState.READY,
+                resolvedStreamType = ResolvedStreamType.HLS,
+                recoveryAttempt = 4,
+                maxAttempts = 3
+            )
+        ).isFalse()
+    }
+
+    @Test
     fun `vod ready stalls do not reconnect as live streams`() {
         assertThat(
             shouldReconnectLiveStall(

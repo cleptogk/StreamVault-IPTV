@@ -14,9 +14,10 @@ internal fun shouldRecoverFrameSilentReadyStalls(resolvedStreamType: ResolvedStr
 internal fun shouldReconnectLiveStall(
     playbackState: PlaybackState,
     resolvedStreamType: ResolvedStreamType,
-    recoveryAttempt: Int
+    recoveryAttempt: Int,
+    maxAttempts: Int = 1
 ): Boolean =
-    recoveryAttempt == 1 &&
+    recoveryAttempt in 1..maxAttempts.coerceAtLeast(1) &&
         (
             playbackState == PlaybackState.BUFFERING && resolvedStreamType.isLiveForStallRecovery ||
                 playbackState == PlaybackState.READY && resolvedStreamType.isLiveForStallRecovery

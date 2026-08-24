@@ -139,6 +139,10 @@ class Media3PlayerEngine @Inject constructor(
 
     var constrainResolutionForMultiView: Boolean = false
     var multiViewMaxVideoHeight: Int? = null
+    /** Cap VOD read-ahead in a wall so several recordings cannot consume the Shield's RAM/swap. */
+    var constrainVodBufferForMultiView: Boolean = false
+    /** Bounded same-slot reconnects; the old media source is stopped before each retry. */
+    var maxLiveStallReconnectAttempts: Int = 1
     var bypassAudioFocus: Boolean = false
         set(value) {
             field = value
@@ -1060,7 +1064,7 @@ class Media3PlayerEngine @Inject constructor(
         val nextBufferPolicy = PlaybackBufferPolicies.forPlayback(
             resolvedStreamType = if (isLiveBuffer) currentResolvedStreamType else ResolvedStreamType.PROGRESSIVE,
             compatibilityMode = nextVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
-            lowMemoryDevice = isLowMemoryPlaybackDevice,
+            lowMemoryDevice = isLowMemoryPlaybackDevice || (constrainVodBufferForMultiView && !isLiveBuffer),
             bufferMode = requestedPlaybackBufferMode,
             streamInfo = streamInfo,
             observedVideoFormat = _videoFormat.value,
@@ -1835,7 +1839,8 @@ class Media3PlayerEngine @Inject constructor(
         val liveReconnectionStall = shouldReconnectLiveStall(
             playbackState = _playbackState.value,
             resolvedStreamType = currentResolvedStreamType,
-            recoveryAttempt = nextRecoveryAttempt
+            recoveryAttempt = nextRecoveryAttempt,
+            maxAttempts = maxLiveStallReconnectAttempts
         )
         Log.w(
             TAG,
@@ -1850,6 +1855,9 @@ class Media3PlayerEngine @Inject constructor(
         videoStallRecoveryAttempt = nextRecoveryAttempt
         if (liveReconnectionStall) {
             Log.w(TAG, "live-${_playbackState.value.name.lowercase()}-stall reconnect attempt=$videoStallRecoveryAttempt")
+            // Explicitly tear down the stalled loader before reopening the same slot so
+            // a retry does not temporarily consume an additional provider connection.
+            exoPlayer?.stop()
             prepareInternal(
                 streamInfo = streamInfo,
                 preserveRetryState = true,
