@@ -232,7 +232,6 @@ fun MultiViewScreen(
             ChannelsDvrRecordingDialog(
                 state = uiState.dvrPickerState,
                 onDismiss = { showDvrPicker = false },
-                onSaveAddress = viewModel::saveChannelsDvrServerAddress,
                 onReload = viewModel::loadChannelsDvrRecordings,
                 onUpdateSearch = viewModel::updateChannelsDvrSearch,
                 onSelect = { recording ->
@@ -294,6 +293,7 @@ fun MultiViewScreen(
                             viewModel.openReplacementPicker()
                             showReplacementPicker = true
                         },
+                        dvrConfigured = uiState.dvrPickerState.serverAddress.isNotBlank(),
                         onShowDvrPicker = {
                             showDvrPicker = true
                             viewModel.loadChannelsDvrRecordings()
@@ -933,25 +933,25 @@ private fun ReplaceSlotDialog(
 private fun ChannelsDvrRecordingDialog(
     state: ChannelsDvrPickerState,
     onDismiss: () -> Unit,
-    onSaveAddress: (String) -> Unit,
     onReload: () -> Unit,
     onUpdateSearch: (String) -> Unit,
     onSelect: (com.streamvault.app.sportswall.ChannelsDvrRecording) -> Unit
 ) {
-    var addressDraft by remember(state.serverAddress) { mutableStateOf(state.serverAddress) }
     PremiumDialog(
         title = "Channels DVR recordings",
-        subtitle = if (state.serverAddress.isBlank()) {
-            "Enter the DVR server address, then choose a recording for the focused pane"
-        } else {
-            "Choose a recording for the focused pane"
-        },
+        subtitle = "Choose a recording for the focused pane",
         onDismissRequest = onDismiss,
         widthFraction = 0.68f,
         content = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PremiumDialogActionButton(label = "Reload", onClick = onReload)
+            }
+            if (!state.errorMessage.isNullOrBlank()) {
+                Text(state.errorMessage, color = Color(0xFFFF8A80), style = MaterialTheme.typography.bodyMedium)
+            }
             BasicTextField(
-                value = addressDraft,
-                onValueChange = { addressDraft = it },
+                value = state.searchQuery,
+                onValueChange = onUpdateSearch,
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color.White.copy(alpha = 0.07f), RoundedCornerShape(12.dp))
@@ -961,9 +961,9 @@ private fun ChannelsDvrRecordingDialog(
                 cursorBrush = SolidColor(Primary),
                 decorationBox = { innerTextField ->
                     Box {
-                        if (addressDraft.isBlank()) {
+                        if (state.searchQuery.isBlank()) {
                             Text(
-                                "http://10.217.0.120:8089",
+                                "Search recordings…",
                                 color = Color.White.copy(alpha = 0.38f),
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -972,46 +972,12 @@ private fun ChannelsDvrRecordingDialog(
                     }
                 }
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PremiumDialogActionButton(label = "Save server", onClick = { onSaveAddress(addressDraft) })
-                if (state.serverAddress.isNotBlank()) {
-                    PremiumDialogActionButton(label = "Reload", onClick = onReload)
-                }
-            }
-            if (!state.errorMessage.isNullOrBlank()) {
-                Text(state.errorMessage, color = Color(0xFFFF8A80), style = MaterialTheme.typography.bodyMedium)
-            }
-            if (state.serverAddress.isNotBlank()) {
-                BasicTextField(
-                    value = state.searchQuery,
-                    onValueChange = onUpdateSearch,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.White.copy(alpha = 0.07f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
-                    singleLine = true,
-                    cursorBrush = SolidColor(Primary),
-                    decorationBox = { innerTextField ->
-                        Box {
-                            if (state.searchQuery.isBlank()) {
-                                Text(
-                                    "Search recordings…",
-                                    color = Color.White.copy(alpha = 0.38f),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                            innerTextField()
-                        }
-                    }
-                )
-            }
             when {
                 state.isLoading -> Box(
                     modifier = Modifier.fillMaxWidth().height(260.dp),
                     contentAlignment = Alignment.Center
                 ) { CircularProgressIndicator(color = Primary, modifier = Modifier.size(32.dp)) }
-                state.serverAddress.isNotBlank() && state.filteredRecordings.isEmpty() -> Text(
+                state.filteredRecordings.isEmpty() -> Text(
                     text = "No matching completed recordings found",
                     color = Color.White.copy(alpha = 0.5f),
                     style = MaterialTheme.typography.bodyMedium

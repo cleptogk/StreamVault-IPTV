@@ -7,7 +7,6 @@ import android.os.PowerManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.di.AuxiliaryPlayerEngine
-import com.streamvault.app.sportswall.ChannelsDvrAddressPolicy
 import com.streamvault.app.sportswall.ChannelsDvrClient
 import com.streamvault.app.sportswall.ChannelsDvrRecording
 import com.streamvault.app.sportswall.toChannel
@@ -460,29 +459,6 @@ class MultiViewViewModel @Inject constructor(
     fun replaceFocusedSlot(channel: Channel) {
         val slotIndex = _uiState.value.focusedSlotIndex
         multiViewManager.setChannel(slotIndex, channel)
-    }
-
-    fun saveChannelsDvrServerAddress(address: String) {
-        viewModelScope.launch {
-            runCatching { ChannelsDvrAddressPolicy.normalize(address) }
-                .onSuccess { normalized ->
-                    preferencesRepository.setChannelsDvrServerAddress(normalized)
-                    _uiState.value = _uiState.value.copy(
-                        dvrPickerState = _uiState.value.dvrPickerState.copy(
-                            serverAddress = normalized,
-                            errorMessage = null
-                        )
-                    )
-                    loadChannelsDvrRecordings()
-                }
-                .onFailure { error ->
-                    _uiState.value = _uiState.value.copy(
-                        dvrPickerState = _uiState.value.dvrPickerState.copy(
-                            errorMessage = error.message ?: "Invalid Channels DVR address"
-                        )
-                    )
-                }
-        }
     }
 
     fun loadChannelsDvrRecordings() {

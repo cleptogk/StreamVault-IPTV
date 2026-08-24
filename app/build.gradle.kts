@@ -66,8 +66,8 @@ android {
         applicationId = "com.cleptogk.streamvault.sportswall"
         minSdk = 25
         targetSdk = 36
-        versionCode = 1_000_024
-        versionName = "1.0.17.7"
+        versionCode = 1_000_025
+        versionName = "1.0.17.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         providers.gradleProperty("compatApi").orNull?.let { expectedApi ->
             testInstrumentationRunnerArguments["expected_api"] = expectedApi

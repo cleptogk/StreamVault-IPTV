@@ -34,6 +34,7 @@ internal fun EnhancedMultiViewControlHud(
     uiState: MultiViewUiState,
     firstControlFocusRequester: FocusRequester,
     onShowReplacementPicker: () -> Unit,
+    dvrConfigured: Boolean,
     onShowDvrPicker: () -> Unit,
     onRemoveFocusedSlot: () -> Unit,
     onClearPinnedAudio: () -> Unit,
@@ -140,6 +141,7 @@ internal fun EnhancedMultiViewControlHud(
             }
             TvButton(
                 onClick = onShowDvrPicker,
+                enabled = dvrConfigured,
                 colors = ButtonDefaults.colors(
                     containerColor = Color(0xFF203A5C),
                     contentColor = Color.White,
