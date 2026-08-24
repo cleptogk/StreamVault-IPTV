@@ -6,6 +6,7 @@ import java.net.URLDecoder
 sealed class ExternalDestination : Serializable {
     data object Home : ExternalDestination()
     data object Plugins : ExternalDestination()
+    data object MultiView : ExternalDestination()
 
     data class ProviderSetup(
         val providerId: Long? = null,
@@ -25,6 +26,7 @@ sealed class ExternalDestination : Serializable {
     fun toRoute(): String = when (this) {
         Home -> Routes.HOME
         Plugins -> Routes.PLUGINS
+        MultiView -> Routes.MULTI_VIEW
         is ProviderSetup -> Routes.providerSetup(providerId = providerId, importUri = importUri)
         is MovieDetail -> Routes.movieDetail(movieId = movieId, returnRoute = returnRoute)
         is SeriesDetail -> Routes.seriesDetail(seriesId = seriesId, returnRoute = returnRoute)
@@ -38,6 +40,7 @@ sealed class ExternalDestination : Serializable {
             return when {
                 normalizedRoute == Routes.HOME -> Home
                 normalizedRoute == Routes.PLUGINS -> Plugins
+                normalizedRoute == Routes.MULTI_VIEW -> MultiView
                 normalizedRoute.startsWith(Routes.PROVIDER_SETUP.substringBefore('?')) -> {
                     val queryParameters = normalizedRoute.queryParameters()
                     val providerId = queryParameters["providerId"]

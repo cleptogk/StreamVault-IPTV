@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
     <string name="app_name">StreamVault</string>
-    <string name="sports_wall_app_name">StreamVault Sports Wall</string>
-    <string name="sports_wall_tv_input_label">StreamVault Sports Wall Live Channels</string>
+    <string name="sports_wall_app_name" translatable="false">StreamVault Sports Wall</string>
+    <string name="sports_wall_tv_input_label" translatable="false">StreamVault Sports Wall Live Channels</string>
 
     
     <string name="nav_home">Home</string>

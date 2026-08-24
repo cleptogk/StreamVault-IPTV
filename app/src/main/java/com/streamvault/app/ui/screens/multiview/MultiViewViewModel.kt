@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
@@ -79,6 +80,31 @@ class MultiViewViewModel @Inject constructor(
     private val playerEngines = mutableMapOf<Int, PlayerEngine>()
 
     init {
+        viewModelScope.launch {
+            multiViewManager.slots.drop(1).collect {
+                if (playbackSessionActive) restartPlaybackIfActive()
+            }
+        }
+        viewModelScope.launch {
+            multiViewManager.focusedSlotIndex.collect { focusedIndex ->
+                if (_uiState.value.focusedSlotIndex != focusedIndex) {
+                    _uiState.value = _uiState.value.copy(focusedSlotIndex = focusedIndex)
+                }
+                applyFocusAudio(focusedIndex)
+            }
+        }
+        viewModelScope.launch {
+            multiViewManager.pinnedAudioSlotIndex.collect { audioSlotIndex ->
+                pinnedAudioSlotIndex = audioSlotIndex
+                _uiState.value = _uiState.value.copy(
+                    pinnedAudioSlotIndex = audioSlotIndex,
+                    slots = _uiState.value.slots.mapIndexed { index, slot ->
+                        slot.copy(isAudioPinned = index == audioSlotIndex)
+                    }
+                )
+                applyFocusAudio(_uiState.value.focusedSlotIndex)
+            }
+        }
         viewModelScope.launch {
             combine(
                 preferencesRepository.playerAudioVideoSyncEnabled,
@@ -349,6 +375,7 @@ class MultiViewViewModel @Inject constructor(
     }
 
     fun setFocus(slotIndex: Int) {
+        multiViewManager.setFocusedSlot(slotIndex)
         if (_uiState.value.focusedSlotIndex != slotIndex) {
             _uiState.value = _uiState.value.copy(focusedSlotIndex = slotIndex)
             applyFocusAudio(slotIndex)
@@ -395,6 +422,7 @@ class MultiViewViewModel @Inject constructor(
         multiViewManager.clearSlot(slotIndex)
         if (pinnedAudioSlotIndex == slotIndex) {
             pinnedAudioSlotIndex = null
+            multiViewManager.setPinnedAudioSlot(null)
         }
         _uiState.value = _uiState.value.copy(pinnedAudioSlotIndex = pinnedAudioSlotIndex)
     }
@@ -404,24 +432,24 @@ class MultiViewViewModel @Inject constructor(
         cancelSlotStartupJobs()
         multiViewManager.clearAll()
         pinnedAudioSlotIndex = null
+        multiViewManager.setPinnedAudioSlot(null)
         _uiState.value = _uiState.value.copy(pinnedAudioSlotIndex = null)
     }
 
     fun replaceFocusedSlot(channel: Channel) {
         val slotIndex = _uiState.value.focusedSlotIndex
         multiViewManager.setChannel(slotIndex, channel)
-        restartPlaybackIfActive()
     }
 
     fun removeFocusedSlot() {
         clearSlot(_uiState.value.focusedSlotIndex)
-        restartPlaybackIfActive()
     }
 
     fun pinAudioToFocusedSlot() {
         val focusedIndex = _uiState.value.focusedSlotIndex
         if (!playerEngines.containsKey(focusedIndex)) return  // Cannot pin audio to a slot without an active engine
         pinnedAudioSlotIndex = focusedIndex
+        multiViewManager.setPinnedAudioSlot(focusedIndex)
         _uiState.value = _uiState.value.copy(
             pinnedAudioSlotIndex = pinnedAudioSlotIndex,
             slots = _uiState.value.slots.mapIndexed { index, slot -> slot.copy(isAudioPinned = index == pinnedAudioSlotIndex) }
@@ -431,6 +459,7 @@ class MultiViewViewModel @Inject constructor(
 
     fun clearPinnedAudio() {
         pinnedAudioSlotIndex = null
+        multiViewManager.setPinnedAudioSlot(null)
         _uiState.value = _uiState.value.copy(
             pinnedAudioSlotIndex = null,
             slots = _uiState.value.slots.map { it.copy(isAudioPinned = false) }
@@ -466,7 +495,6 @@ class MultiViewViewModel @Inject constructor(
                 if (id > 0L) channels[id] else null
             }
             multiViewManager.setSlots(plan)
-            restartPlaybackIfActive()
         }
     }
 
@@ -712,7 +740,10 @@ class MultiViewViewModel @Inject constructor(
                 DevicePerformanceTier.HIGH -> 4 to 240L
             }
             MultiViewPerformanceMode.MAXIMUM -> when (tier) {
-                DevicePerformanceTier.LOW -> 2 to 450L
+                // MAXIMUM is an explicit operator override. Sports Wall targets devices such as
+                // NVIDIA Shield that can be misclassified by Android's memory-class heuristic
+                // despite having enough decoder capacity for the fixed four-pane layout.
+                DevicePerformanceTier.LOW -> 4 to 450L
                 DevicePerformanceTier.MID -> 4 to 260L
                 DevicePerformanceTier.HIGH -> 4 to 160L
             }

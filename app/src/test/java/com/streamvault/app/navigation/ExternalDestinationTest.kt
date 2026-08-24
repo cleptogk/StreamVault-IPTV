@@ -9,6 +9,8 @@ class ExternalDestinationTest {
     fun fromLegacyRoute_parsesSupportedRoutes() {
         assertThat(ExternalDestination.fromLegacyRoute("home"))
             .isEqualTo(ExternalDestination.Home)
+        assertThat(ExternalDestination.fromLegacyRoute("multi_view"))
+            .isEqualTo(ExternalDestination.MultiView)
         assertThat(ExternalDestination.fromLegacyRoute("provider_setup?providerId=-1&importUri="))
             .isEqualTo(ExternalDestination.ProviderSetup())
         assertThat(

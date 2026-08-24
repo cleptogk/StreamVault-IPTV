@@ -19,11 +19,18 @@ class MultiViewManager @Inject constructor() {
     private val _slots = MutableStateFlow<List<Channel?>>(List(MAX_SLOTS) { null })
     val slots: StateFlow<List<Channel?>> = _slots.asStateFlow()
 
+    private val _focusedSlotIndex = MutableStateFlow(0)
+    val focusedSlotIndex: StateFlow<Int> = _focusedSlotIndex.asStateFlow()
+
+    private val _pinnedAudioSlotIndex = MutableStateFlow<Int?>(null)
+    val pinnedAudioSlotIndex: StateFlow<Int?> = _pinnedAudioSlotIndex.asStateFlow()
+
     val hasAnyChannel: Boolean get() = _slots.value.any { it != null }
 
     /** Place a channel in a specific slot index (0–3). Replaces whatever was there. */
     fun setChannel(slotIndex: Int, channel: Channel) {
         if (slotIndex !in 0 until MAX_SLOTS) return
+        val duplicateSlotIndex = _slots.value.indexOfFirst { it?.id == channel.id }
         _slots.update { current ->
             current.toMutableList().also { slots ->
                 slots.indices.forEach { index ->
@@ -34,23 +41,47 @@ class MultiViewManager @Inject constructor() {
                 slots[slotIndex] = channel
             }
         }
+        if (duplicateSlotIndex != slotIndex && _pinnedAudioSlotIndex.value == duplicateSlotIndex) {
+            _pinnedAudioSlotIndex.value = null
+        }
     }
 
     /** Clear a specific slot. */
     fun clearSlot(slotIndex: Int) {
         if (slotIndex !in 0 until MAX_SLOTS) return
         _slots.update { current -> current.toMutableList().also { it[slotIndex] = null } }
+        if (_pinnedAudioSlotIndex.value == slotIndex) {
+            _pinnedAudioSlotIndex.value = null
+        }
     }
 
     /** Clear all slots. */
     fun clearAll() {
         _slots.update { List(MAX_SLOTS) { null } }
+        _focusedSlotIndex.value = 0
+        _pinnedAudioSlotIndex.value = null
     }
 
     /** Atomically replace all slot assignments. `plan` must have exactly MAX_SLOTS entries. */
     fun setSlots(plan: List<Channel?>) {
         require(plan.size == MAX_SLOTS)
         _slots.update { plan.toList() }
+        if (plan.getOrNull(_focusedSlotIndex.value) == null) {
+            _focusedSlotIndex.value = plan.indexOfFirst { it != null }.coerceAtLeast(0)
+        }
+        if (plan.getOrNull(_pinnedAudioSlotIndex.value ?: -1) == null) {
+            _pinnedAudioSlotIndex.value = null
+        }
+    }
+
+    fun setFocusedSlot(slotIndex: Int) {
+        if (slotIndex in 0 until MAX_SLOTS) _focusedSlotIndex.value = slotIndex
+    }
+
+    fun setPinnedAudioSlot(slotIndex: Int?) {
+        if (slotIndex == null || slotIndex in 0 until MAX_SLOTS) {
+            _pinnedAudioSlotIndex.value = slotIndex
+        }
     }
 
     /** Returns true if the given channel is in any slot. */

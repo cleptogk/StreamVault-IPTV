@@ -66,8 +66,8 @@ android {
         applicationId = "com.cleptogk.streamvault.sportswall"
         minSdk = 25
         targetSdk = 36
-        versionCode = 1_000_018
-        versionName = "1.0.17.1"
+        versionCode = 1_000_019
+        versionName = "1.0.17.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         providers.gradleProperty("compatApi").orNull?.let { expectedApi ->
             testInstrumentationRunnerArguments["expected_api"] = expectedApi
@@ -224,6 +224,8 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.zxing.core)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.nanohttpd)
+    implementation(libs.security.crypto)
 
     // Activity & Lifecycle
     implementation(libs.activity.compose)
