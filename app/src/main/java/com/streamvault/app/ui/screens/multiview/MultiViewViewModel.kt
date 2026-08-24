@@ -311,6 +311,7 @@ class MultiViewViewModel @Inject constructor(
                                 it.constrainResolutionForMultiView = !maximumMode
                                 it.multiViewMaxVideoHeight = if (maximumMode) 1080 else null
                                 it.constrainVodBufferForMultiView = true
+                                it.stabilizeLiveBufferForMultiView = true
                                 it.maxLiveStallReconnectAttempts = 3
                                 it.bypassAudioFocus = true
                                 it.enableMediaSession = false
@@ -418,8 +419,15 @@ class MultiViewViewModel @Inject constructor(
         val audibleIndex = pinnedAudioSlotIndex
             ?.takeIf { playerEngines.containsKey(it) }
             ?: focusedIndex
+        playerEngines[audibleIndex]?.let { engine ->
+            (engine as? com.streamvault.player.Media3PlayerEngine)?.setAudioTrackEnabled(true)
+            engine.setVolume(1f)
+        }
         playerEngines.forEach { (index, engine) ->
-            if (index == audibleIndex) engine.setVolume(1f) else engine.setVolume(0f)
+            if (index != audibleIndex) {
+                engine.setVolume(0f)
+                (engine as? com.streamvault.player.Media3PlayerEngine)?.setAudioTrackEnabled(false)
+            }
         }
     }
 

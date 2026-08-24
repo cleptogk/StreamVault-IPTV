@@ -141,6 +141,8 @@ class Media3PlayerEngine @Inject constructor(
     var multiViewMaxVideoHeight: Int? = null
     /** Cap VOD read-ahead in a wall so several recordings cannot consume the Shield's RAM/swap. */
     var constrainVodBufferForMultiView: Boolean = false
+    /** Give the wall's single live pane a moderate buffer even on a small app memory class. */
+    var stabilizeLiveBufferForMultiView: Boolean = false
     /** Bounded same-slot reconnects; the old media source is stopped before each retry. */
     var maxLiveStallReconnectAttempts: Int = 1
     var bypassAudioFocus: Boolean = false
@@ -601,6 +603,14 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun setMuted(muted: Boolean) {
         audioFocusController.setMuted(muted)
+    }
+
+    fun setAudioTrackEnabled(enabled: Boolean) {
+        val player = exoPlayer ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !enabled)
+            .build()
     }
 
     override fun setPlaybackSpeed(speed: Float) {
@@ -1064,7 +1074,11 @@ class Media3PlayerEngine @Inject constructor(
         val nextBufferPolicy = PlaybackBufferPolicies.forPlayback(
             resolvedStreamType = if (isLiveBuffer) currentResolvedStreamType else ResolvedStreamType.PROGRESSIVE,
             compatibilityMode = nextVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
-            lowMemoryDevice = isLowMemoryPlaybackDevice || (constrainVodBufferForMultiView && !isLiveBuffer),
+            lowMemoryDevice = when {
+                constrainVodBufferForMultiView && !isLiveBuffer -> true
+                stabilizeLiveBufferForMultiView && isLiveBuffer -> false
+                else -> isLowMemoryPlaybackDevice
+            },
             bufferMode = requestedPlaybackBufferMode,
             streamInfo = streamInfo,
             observedVideoFormat = _videoFormat.value,
