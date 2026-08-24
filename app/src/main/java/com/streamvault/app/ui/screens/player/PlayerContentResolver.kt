@@ -181,6 +181,7 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                     proxyPort = resolved.proxyPort,
                     streamType = StreamType.fromContainerExtension(ext),
                     containerExtension = ext,
+                    isLive = contentType == ContentType.LIVE,
                     expirationTime = resolved.expirationTime
                 )
             )

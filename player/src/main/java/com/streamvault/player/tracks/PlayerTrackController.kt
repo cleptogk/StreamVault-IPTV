@@ -41,7 +41,11 @@ class PlayerTrackController(
         selectedVideoTrackId = PLAYER_TRACK_AUTO_ID
     }
 
-    fun applyInitialParameters(player: ExoPlayer, constrainResolutionForMultiView: Boolean) {
+    fun applyInitialParameters(
+        player: ExoPlayer,
+        constrainResolutionForMultiView: Boolean,
+        multiViewMaxVideoHeight: Int? = null
+    ) {
         player.trackSelectionParameters = player.trackSelectionParameters
             .buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
@@ -53,7 +57,10 @@ class PlayerTrackController(
             .setPreferredAudioLanguage(preferredAudioLanguageTag)
             .setViewportSizeToPhysicalDisplaySize(context, true)
             .apply {
-                resolvedMaxVideoHeightForCurrentNetwork(constrainResolutionForMultiView)?.let { maxHeight ->
+                resolvedMaxVideoHeightForCurrentNetwork(
+                    constrainResolutionForMultiView,
+                    multiViewMaxVideoHeight
+                )?.let { maxHeight ->
                     setMaxVideoSize(Int.MAX_VALUE, maxHeight)
                 } ?: clearVideoSizeConstraints()
             }
@@ -195,7 +202,10 @@ class PlayerTrackController(
         return null
     }
 
-    private fun resolvedMaxVideoHeightForCurrentNetwork(constrainResolutionForMultiView: Boolean): Int? {
+    private fun resolvedMaxVideoHeightForCurrentNetwork(
+        constrainResolutionForMultiView: Boolean,
+        multiViewMaxVideoHeight: Int?
+    ): Int? {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val network = connectivityManager?.activeNetwork ?: return null
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return null
@@ -205,6 +215,9 @@ class PlayerTrackController(
             else -> null
         }
         return when {
+            multiViewMaxVideoHeight != null && networkPreference != null ->
+                minOf(multiViewMaxVideoHeight, networkPreference)
+            multiViewMaxVideoHeight != null -> multiViewMaxVideoHeight
             constrainResolutionForMultiView && networkPreference != null -> minOf(720, networkPreference)
             constrainResolutionForMultiView -> 720
             else -> networkPreference

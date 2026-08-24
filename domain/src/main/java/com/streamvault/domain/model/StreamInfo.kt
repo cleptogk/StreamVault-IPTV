@@ -18,6 +18,8 @@ data class StreamInfo(
     val streamType: StreamType = StreamType.UNKNOWN,
     val containerExtension: String? = null,
     val catchUpUrl: String? = null,
+    /** Explicit playback semantics for HLS, which can represent either live TV or VOD. */
+    val isLive: Boolean? = null,
     val expirationTime: Long? = null,
     val drmInfo: DrmInfo? = null
 ) {

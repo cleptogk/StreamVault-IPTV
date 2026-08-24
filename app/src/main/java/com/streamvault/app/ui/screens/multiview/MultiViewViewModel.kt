@@ -289,11 +289,16 @@ class MultiViewViewModel @Inject constructor(
                     var localEngine: PlayerEngine? = null
                     var enginePublished = false
                     try {
+                        val channel = slot.channel
+                            ?: throw IllegalStateException("Missing channel for slot ${slot.index}")
                         localEngine = playerEngineProvider.get()
-                        // Cap each multi-view slot to 720p so slots don't compete for 4K bandwidth
+                        // MAXIMUM fills each 4K-display quadrant at 1080p while still blocking 4K-per-pane.
                         (localEngine as? com.streamvault.player.Media3PlayerEngine)
                             ?.let {
-                                it.constrainResolutionForMultiView = true
+                                val maximumMode = _uiState.value.performancePolicy.mode ==
+                                    MultiViewPerformanceMode.MAXIMUM
+                                it.constrainResolutionForMultiView = !maximumMode
+                                it.multiViewMaxVideoHeight = if (maximumMode) 1080 else null
                                 it.bypassAudioFocus = true
                                 it.enableMediaSession = false
                             }
@@ -302,8 +307,6 @@ class MultiViewViewModel @Inject constructor(
                         }
                         observeSlotErrors(index, localEngine, initVersion)
 
-                        val channel = slot.channel
-                            ?: throw IllegalStateException("Missing channel for slot ${slot.index}")
                         val avSyncEnabled = preferencesRepository.playerAudioVideoSyncEnabled.first()
                         localEngine.setAudioVideoSyncEnabled(avSyncEnabled)
                         localEngine.setAudioVideoOffsetMs(
@@ -317,6 +320,12 @@ class MultiViewViewModel @Inject constructor(
                             is Result.Success -> result.data
                             is Result.Error -> throw IllegalStateException(result.message)
                             Result.Loading -> throw IllegalStateException("Stream info still loading for ${slot.title}")
+                        }.let { resolved ->
+                            if (channel.categoryName == "Channels DVR" && channel.providerId == 0L) {
+                                resolved.copy(isLive = false)
+                            } else {
+                                resolved
+                            }
                         }
 
                         if (initVersion != slotInitVersion || slotGen != slotGenerations.getOrDefault(index, 0L)) {

@@ -70,8 +70,8 @@ interface PlayerEngine {
     /** Stop playback and release the active media source/network connection. */
     fun stop()
     fun seekTo(positionMs: Long)
-    fun seekForward(ms: Long = 10_000)
-    fun seekBackward(ms: Long = 10_000)
+    fun seekForward(ms: Long = 30_000)
+    fun seekBackward(ms: Long = 30_000)
     fun setDecoderModes(audioMode: DecoderMode, videoMode: DecoderMode)
     fun setPlaybackBufferMode(mode: PlaybackBufferMode)
     fun setSurfaceMode(mode: PlayerSurfaceMode)

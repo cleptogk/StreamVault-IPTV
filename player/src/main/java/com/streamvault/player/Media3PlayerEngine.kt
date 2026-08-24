@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.ScrubbingModeParameters
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
@@ -137,6 +138,7 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     var constrainResolutionForMultiView: Boolean = false
+    var multiViewMaxVideoHeight: Int? = null
     var bypassAudioFocus: Boolean = false
         set(value) {
             field = value
@@ -729,7 +731,13 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun setNetworkQualityPreferences(wifiMaxHeight: Int?, ethernetMaxHeight: Int?) {
         trackController.setNetworkQualityPreferences(wifiMaxHeight, ethernetMaxHeight)
-        exoPlayer?.let { player -> trackController.applyInitialParameters(player, constrainResolutionForMultiView) }
+        exoPlayer?.let { player ->
+            trackController.applyInitialParameters(
+                player,
+                constrainResolutionForMultiView,
+                multiViewMaxVideoHeight
+            )
+        }
     }
 
     override fun selectAudioTrack(trackId: String) {
@@ -1040,16 +1048,17 @@ class Media3PlayerEngine @Inject constructor(
             learnedAudioCompatibility != null -> "LEARNED_AUDIO_FALLBACK"
             else -> "DEFAULT"
         }
-        val isLiveBuffer = currentResolvedStreamType in setOf(
+        val inferredLiveBuffer = currentResolvedStreamType in setOf(
             ResolvedStreamType.HLS,
             ResolvedStreamType.SMOOTH_STREAMING,
             ResolvedStreamType.MPEG_TS_LIVE,
             ResolvedStreamType.RTSP
         )
+        val isLiveBuffer = streamInfo.isLive ?: inferredLiveBuffer
         val previousAudioDecoderPolicy = activeAudioDecoderPolicy
         val previousVideoDecoderPolicy = activeVideoDecoderPolicy
         val nextBufferPolicy = PlaybackBufferPolicies.forPlayback(
-            resolvedStreamType = currentResolvedStreamType,
+            resolvedStreamType = if (isLiveBuffer) currentResolvedStreamType else ResolvedStreamType.PROGRESSIVE,
             compatibilityMode = nextVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
             lowMemoryDevice = isLowMemoryPlaybackDevice,
             bufferMode = requestedPlaybackBufferMode,
@@ -1085,7 +1094,12 @@ class Media3PlayerEngine @Inject constructor(
 
         try {
             val player = getOrCreatePlayer()
-            trackController.applyInitialParameters(player, constrainResolutionForMultiView)
+            player.setSeekParameters(if (isLiveBuffer) SeekParameters.DEFAULT else SeekParameters.CLOSEST_SYNC)
+            trackController.applyInitialParameters(
+                player,
+                constrainResolutionForMultiView,
+                multiViewMaxVideoHeight
+            )
             if (activeVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY) {
                 player.trackSelectionParameters = player.trackSelectionParameters
                     .buildUpon()
