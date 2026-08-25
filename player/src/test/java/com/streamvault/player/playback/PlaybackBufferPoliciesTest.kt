@@ -9,6 +9,34 @@ import org.junit.Test
 class PlaybackBufferPoliciesTest {
 
     @Test
+    fun `multiview live trims read ahead without changing recovery thresholds`() {
+        val baseline = PlaybackBufferPolicies.forPlayback(isLive = true, compatibilityMode = false)
+        val policy = PlaybackBufferPolicies.constrainForMultiView(baseline, isLive = true)
+
+        assertThat(policy.label).isEqualTo("wall-live")
+        assertThat(policy.minBufferMs).isEqualTo(6_000)
+        assertThat(policy.maxBufferMs).isEqualTo(20_000)
+        assertThat(policy.playbackBufferMs).isEqualTo(1_500)
+        assertThat(policy.rebufferMs).isEqualTo(5_000)
+    }
+
+    @Test
+    fun `multiview recording trims read ahead without changing recovery thresholds`() {
+        val baseline = PlaybackBufferPolicies.forPlayback(
+            isLive = false,
+            compatibilityMode = false,
+            lowMemoryDevice = true
+        )
+        val policy = PlaybackBufferPolicies.constrainForMultiView(baseline, isLive = false)
+
+        assertThat(policy.label).isEqualTo("wall-vod")
+        assertThat(policy.minBufferMs).isEqualTo(10_000)
+        assertThat(policy.maxBufferMs).isEqualTo(30_000)
+        assertThat(policy.playbackBufferMs).isEqualTo(1_000)
+        assertThat(policy.rebufferMs).isEqualTo(3_000)
+    }
+
+    @Test
     fun `normal live uses production live buffer baseline`() {
         val policy = PlaybackBufferPolicies.forPlayback(isLive = true, compatibilityMode = false)
 

@@ -1071,7 +1071,7 @@ class Media3PlayerEngine @Inject constructor(
         val isLiveBuffer = streamInfo.isLive ?: inferredLiveBuffer
         val previousAudioDecoderPolicy = activeAudioDecoderPolicy
         val previousVideoDecoderPolicy = activeVideoDecoderPolicy
-        val nextBufferPolicy = PlaybackBufferPolicies.forPlayback(
+        val baselineBufferPolicy = PlaybackBufferPolicies.forPlayback(
             resolvedStreamType = if (isLiveBuffer) currentResolvedStreamType else ResolvedStreamType.PROGRESSIVE,
             compatibilityMode = nextVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
             lowMemoryDevice = when {
@@ -1084,6 +1084,14 @@ class Media3PlayerEngine @Inject constructor(
             observedVideoFormat = _videoFormat.value,
             qualityReasonOverride = promotedLiveHlsBufferReasonsByMediaId.get(mediaId)
         )
+        val nextBufferPolicy = if (
+            (isLiveBuffer && stabilizeLiveBufferForMultiView) ||
+            (!isLiveBuffer && constrainVodBufferForMultiView)
+        ) {
+            PlaybackBufferPolicies.constrainForMultiView(baselineBufferPolicy, isLiveBuffer)
+        } else {
+            baselineBufferPolicy
+        }
         val needsRecreate = activeAudioDecoderMode != preferredAudioDecoderMode ||
             activeVideoDecoderMode != preferredVideoDecoderMode ||
             previousAudioDecoderPolicy != nextAudioDecoderPolicy ||

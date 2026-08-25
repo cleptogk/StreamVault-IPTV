@@ -44,6 +44,10 @@ internal object PlaybackBufferPolicies {
     private const val REBUFFER_MS = 5_000
     private const val VOD_PLAYBACK_BUFFER_MS = 8_000
     private const val VOD_REBUFFER_MS = 18_000
+    private const val MULTI_VIEW_LIVE_MIN_BUFFER_MS = 6_000
+    private const val MULTI_VIEW_LIVE_MAX_BUFFER_MS = 20_000
+    private const val MULTI_VIEW_VOD_MIN_BUFFER_MS = 10_000
+    private const val MULTI_VIEW_VOD_MAX_BUFFER_MS = 30_000
     private const val MEDIUM_LIVE_MIN_BUFFER_MS = 15_000
     private const val MEDIUM_LIVE_MAX_BUFFER_MS = 45_000
     private const val MEDIUM_LIVE_PLAYBACK_BUFFER_MS = 3_000
@@ -130,6 +134,23 @@ internal object PlaybackBufferPolicies {
             resolvedStreamType = resolvedStreamType,
             compatibilityMode = compatibilityMode,
             lowMemoryDevice = lowMemoryDevice
+        )
+    }
+
+    fun constrainForMultiView(
+        policy: PlaybackBufferPolicy,
+        isLive: Boolean
+    ): PlaybackBufferPolicy = if (isLive) {
+        policy.copy(
+            label = "wall-live",
+            minBufferMs = MULTI_VIEW_LIVE_MIN_BUFFER_MS,
+            maxBufferMs = MULTI_VIEW_LIVE_MAX_BUFFER_MS
+        )
+    } else {
+        policy.copy(
+            label = "wall-vod",
+            minBufferMs = MULTI_VIEW_VOD_MIN_BUFFER_MS,
+            maxBufferMs = MULTI_VIEW_VOD_MAX_BUFFER_MS
         )
     }
 
