@@ -49,6 +49,9 @@ does not freeze at `#EXT-X-ENDLIST`.
 The wall requests the native video-copy HLS rendition where Channels supports
 it. A 1080p recording should report `1920×1080`; a channel that is natively
 720p should remain `1280×720` rather than being falsely upscaled.
+Channels' `corrupted` marker is diagnostic only: Channels may set it for a
+single bad frame, so completed and processed recordings remain listed and
+playable. Cancelled or incomplete recordings remain excluded.
 
 ### Dedicated SMB profile
 

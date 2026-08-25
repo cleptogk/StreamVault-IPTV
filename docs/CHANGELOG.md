@@ -2,6 +2,14 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17.22-sports-wall]
+
+### Fixed
+
+- Kept completed Channels DVR recordings visible and playable when Channels
+  marks them `corrupted`; that server marker can represent only one bad frame
+  and is now treated as informational rather than a rejection condition.
+
 ## [1.0.17.21-sports-wall]
 
 ### Fixed

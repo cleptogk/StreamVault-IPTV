@@ -84,9 +84,12 @@ class ChannelsDvrClient @Inject constructor(
         else -> JsonArray(emptyList())
     }
 
-    private fun parseRecording(element: JsonElement): ChannelsDvrRecording? {
+    internal fun parseRecording(element: JsonElement): ChannelsDvrRecording? {
         val row = element as? JsonObject ?: return null
-        if (row.boolean("cancelled") == true || row.boolean("corrupted") == true) return null
+        // Channels can set `corrupted` after a single bad frame even though the
+        // recording remains playable. Keep it as server metadata and gate only on
+        // lifecycle fields that actually make the recording unusable.
+        if (row.boolean("cancelled") == true) return null
         if (row.boolean("completed") == false || row.boolean("processed") == false) return null
         val id = row.string("id") ?: row.string("ID") ?: row.string("recording_id") ?: return null
         if (!id.matches(Regex("[A-Za-z0-9_.-]{1,128}"))) return null
