@@ -101,3 +101,7 @@
 -keepattributes SourceFile,LineNumberTable       # Better crash reports
 -renamesourcefileattribute SourceFile
 -keepattributes RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations
+# The JCA provider instantiates this digest adapter reflectively by class name.
+-keep public class com.streamvault.data.storage.SmbMd4MessageDigest {
+    public <init>();
+}

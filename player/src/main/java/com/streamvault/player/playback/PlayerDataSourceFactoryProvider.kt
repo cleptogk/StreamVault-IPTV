@@ -10,6 +10,7 @@ import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlaybackTransportPolicy
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.util.BoundedExpiringCache
+import com.streamvault.player.timeshift.PlaybackTimeshiftCaptureSink
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URI
@@ -24,7 +25,8 @@ internal fun shouldUsePlatformHttpDataSource(resolvedStreamType: ResolvedStreamT
 @UnstableApi
 class PlayerDataSourceFactoryProvider(
     private val context: Context,
-    private val baseClient: OkHttpClient
+    private val baseClient: OkHttpClient,
+    private val timeshiftCaptureSink: PlaybackTimeshiftCaptureSink? = null
 ) {
     private companion object {
         private const val TAG = "PlayerDataSource"
@@ -108,7 +110,7 @@ class PlayerDataSourceFactoryProvider(
             }
         }
         val defaultFactory = DefaultDataSource.Factory(context, upstreamFactory)
-        val factory = if (shouldWrapDataSourceReadStats(resolvedStreamType)) {
+        val statsFactory = if (shouldWrapDataSourceReadStats(resolvedStreamType)) {
             PlayerDataSourceReadStatsFactory(
                 upstream = defaultFactory,
                 resolvedStreamType = resolvedStreamType,
@@ -116,6 +118,11 @@ class PlayerDataSourceFactoryProvider(
             )
         } else {
             defaultFactory
+        }
+        val factory = if (resolvedStreamType == ResolvedStreamType.HLS && timeshiftCaptureSink != null) {
+            PlaybackTimeshiftDataSourceFactory(statsFactory, timeshiftCaptureSink)
+        } else {
+            statsFactory
         }
         return profile to factory
     }

@@ -2,6 +2,40 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17.20-sports-wall]
+
+### Added
+
+- Added coordinated pause/resume for all multiview panes, with live panes using
+  the existing local-timeshift engine rather than a separate recording stack.
+- Added encrypted Settings profiles for dedicated SMB timeshift and live-
+  recording folders, including a write-verifying connection test.
+- Added authenticated per-pane timeshift diagnostics for MCP, Home Assistant,
+  and operational health checks.
+- Added Channels DVR recording placement in any wall pane or fullscreen, using
+  native video-copy HLS when available.
+- Added an explicit Sports Wall API auto-start setting and boot behavior.
+
+### Changed
+
+- Reused Media3's active HLS reads for initial timeshift capture so pause does
+  not open a second provider connection.
+- Serialized SMB segment uploads to bound Shield heap use while retaining the
+  local rolling buffer as the immediate resume source and SMB as durable
+  overflow/fallback storage.
+- Tuned mixed-wall live and recording buffers, disabled audio decoding on muted
+  panes, and preserved native recording resolution.
+
+### Fixed
+
+- Fixed provider connection-limit failures caused by duplicate live capture.
+- Fixed long-pause resume waits, missing autoplay, transient live HTTP 403
+  recovery, screen-saver activation during playback, and audio-indicator
+  obstruction.
+- Fixed out-of-memory crashes caused by concurrent SMB uploads.
+- Fixed delayed HLS playback freezing at a finite snapshot boundary by chaining
+  captured segments with a stable continuation token.
+
 ## [1.0.17]
 
 ### Added

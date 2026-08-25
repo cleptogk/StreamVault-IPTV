@@ -8,6 +8,19 @@ import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class MultiViewPanePlaybackDiagnostics(
+    val pane: Int,
+    val playbackState: String = "IDLE",
+    val isPlaying: Boolean = false,
+    val videoWidth: Int = 0,
+    val videoHeight: Int = 0,
+    val timeshiftStatus: String = "DISABLED",
+    val timeshiftBackend: String = "NONE",
+    val bufferedDurationMs: Long = 0L,
+    val offsetFromLiveMs: Long = 0L,
+    val updatedAtMs: Long = 0L
+)
+
 /**
  * Singleton that holds the 4 fixed slots for the Multi-View (Split Screen) feature.
  * Each slot can hold exactly one channel. Slots persist across navigation.
@@ -30,6 +43,12 @@ class MultiViewManager @Inject constructor() {
 
     private val _pauseAllRequested = MutableStateFlow(false)
     val pauseAllRequested: StateFlow<Boolean> = _pauseAllRequested.asStateFlow()
+
+    private val _playbackDiagnostics = MutableStateFlow(
+        List(MAX_SLOTS) { index -> MultiViewPanePlaybackDiagnostics(pane = index + 1) }
+    )
+    val playbackDiagnostics: StateFlow<List<MultiViewPanePlaybackDiagnostics>> =
+        _playbackDiagnostics.asStateFlow()
 
     val hasAnyChannel: Boolean get() = _slots.value.any { it != null }
 
@@ -99,6 +118,23 @@ class MultiViewManager @Inject constructor() {
 
     fun setPauseAllRequested(paused: Boolean) {
         _pauseAllRequested.value = paused
+    }
+
+    fun updatePlaybackDiagnostics(slotIndex: Int, diagnostics: MultiViewPanePlaybackDiagnostics) {
+        if (slotIndex !in 0 until MAX_SLOTS) return
+        _playbackDiagnostics.update { current ->
+            current.toMutableList().also { it[slotIndex] = diagnostics.copy(pane = slotIndex + 1) }
+        }
+    }
+
+    fun clearPlaybackDiagnostics(slotIndex: Int) {
+        updatePlaybackDiagnostics(slotIndex, MultiViewPanePlaybackDiagnostics(pane = slotIndex + 1))
+    }
+
+    fun clearAllPlaybackDiagnostics() {
+        _playbackDiagnostics.value = List(MAX_SLOTS) { index ->
+            MultiViewPanePlaybackDiagnostics(pane = index + 1)
+        }
     }
 
     /** Returns true if the given channel is in any slot. */

@@ -48,6 +48,7 @@ val ffmpegManifestFile = layout.projectDirectory.file("libs/media3-decoder-ffmpe
 val verifyLocalFfmpegArtifact by tasks.registering {
     group = "verification"
     description = "Verifies the bundled Media3 FFmpeg artifact, metadata, and supported ABIs."
+    notCompatibleWithConfigurationCache("The verifier inspects nested AAR/JAR archives at execution time.")
 
     inputs.file(ffmpegAarFile)
     inputs.file(ffmpegManifestFile)

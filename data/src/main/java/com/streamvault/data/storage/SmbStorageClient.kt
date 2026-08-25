@@ -19,6 +19,10 @@ import javax.inject.Singleton
 
 @Singleton
 class SmbStorageClient @Inject constructor() {
+    init {
+        SmbCryptoProvider.ensureInitialized()
+    }
+
     suspend fun test(profile: SmbStorageProfile): SmbStorageTestResult = withContext(Dispatchers.IO) {
         val valid = profile.normalizedAndValidated()
         val context = createContext(valid)
@@ -144,7 +148,9 @@ class SmbStorageClient @Inject constructor() {
     private fun createContext(profile: SmbStorageProfile): CIFSContext {
         val properties = Properties().apply {
             setProperty("jcifs.smb.client.minVersion", "SMB202")
-            setProperty("jcifs.smb.client.maxVersion", "SMB311")
+            // jCIFS 2.1.x only has partial SMB3 support. SMB 2.1 avoids its Android
+            // session-finalization failures while retaining signing and large I/O.
+            setProperty("jcifs.smb.client.maxVersion", "SMB210")
             setProperty("jcifs.smb.client.responseTimeout", "10000")
             setProperty("jcifs.smb.client.soTimeout", "15000")
         }
@@ -165,9 +171,15 @@ class SmbStorageClient @Inject constructor() {
         }
     }
 
-    private fun sanitizeError(error: Exception): String = error.message.orEmpty()
+    private fun sanitizeError(error: Exception): String = generateSequence<Throwable>(error) { it.cause }
+        .mapNotNull { cause -> cause.message }
+        .filter(String::isNotBlank)
+        .distinct()
+        .take(4)
+        .joinToString(": ")
         .replace(Regex("(?i)(password|passwd|pwd)=[^&\\s]+"), "$1=<redacted>")
         .replace(Regex("smb://[^@/\\s]+@"), "smb://<redacted>@")
+        .take(320)
         .takeIf(String::isNotBlank) ?: "SMB connection failed"
 
     companion object { private val TEST_BYTES = "StreamVault SMB test".encodeToByteArray() }

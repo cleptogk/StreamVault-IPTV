@@ -66,8 +66,8 @@ android {
         applicationId = "com.cleptogk.streamvault.sportswall"
         minSdk = 25
         targetSdk = 36
-        versionCode = 1_000_031
-        versionName = "1.0.17.14"
+        versionCode = 1_000_037
+        versionName = "1.0.17.20"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         providers.gradleProperty("compatApi").orNull?.let { expectedApi ->
             testInstrumentationRunnerArguments["expected_api"] = expectedApi
@@ -124,6 +124,17 @@ android {
             buildConfigField("long", "BUILD_TIMESTAMP_UTC", "${System.currentTimeMillis()}L")
             isDebuggable = false
             // Keep beta close to release behavior but faster for CI/test distribution.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            matchingFallbacks += listOf("release")
+        }
+        create("diagnostic") {
+            initWith(getByName("release"))
+            versionNameSuffix = "-diagnostic"
+            isDebuggable = false
             isMinifyEnabled = false
             isShrinkResources = false
             if (hasReleaseSigning) {

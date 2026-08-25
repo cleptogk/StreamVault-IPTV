@@ -9,8 +9,10 @@ import com.streamvault.data.local.entity.CategoryCount
 import com.streamvault.data.local.entity.ChannelBrowseEntity
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.remote.xtream.ResolvedStreamUrl
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.domain.manager.ParentalControlManager
+import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
@@ -24,6 +26,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -348,6 +351,37 @@ class ChannelRepositoryImplTest {
         val result = repository.getChannel(99L)
 
         assertThat(result?.logoUrl).isEqualTo("https://epg.example/icon.png")
+    }
+
+    @Test
+    fun `getStreamInfo preserves live semantics for linear channels`() = runTest {
+        whenever(
+            xtreamStreamUrlResolver.resolveAndCommitMetadata(
+                url = eq("streamvault://live/7/199"),
+                fallbackProviderId = eq(7L),
+                fallbackStreamId = eq(199L),
+                fallbackContentType = eq(ContentType.LIVE),
+                fallbackContainerExtension = anyOrNull(),
+                preferStableUrl = eq(false)
+            )
+        ).thenReturn(
+            ResolvedStreamUrl(
+                url = "https://provider.example/live/199.m3u8",
+                containerExtension = "m3u8"
+            )
+        )
+
+        val result = createRepository().getStreamInfo(
+            Channel(
+                id = 99L,
+                name = "ESPN2",
+                streamUrl = "streamvault://live/7/199",
+                providerId = 7L,
+                streamId = 199L
+            )
+        )
+
+        assertThat(result.getOrNull()?.isLive).isTrue()
     }
 
     @Test

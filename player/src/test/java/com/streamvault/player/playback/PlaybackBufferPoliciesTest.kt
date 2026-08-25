@@ -37,6 +37,38 @@ class PlaybackBufferPoliciesTest {
     }
 
     @Test
+    fun `multiview caps uhd live recovery threshold to a valid load control value`() {
+        val baseline = PlaybackBufferPolicies.forPlayback(
+            resolvedStreamType = ResolvedStreamType.HLS,
+            compatibilityMode = false,
+            lowMemoryDevice = false,
+            bufferMode = PlaybackBufferMode.AUTO,
+            streamInfo = StreamInfo(url = "https://example.com/live/espn-4k/index.m3u8")
+        )
+        val policy = PlaybackBufferPolicies.constrainForMultiView(baseline, isLive = true)
+
+        assertThat(baseline.rebufferMs).isEqualTo(15_000)
+        assertThat(policy.minBufferMs).isEqualTo(6_000)
+        assertThat(policy.rebufferMs).isEqualTo(6_000)
+        assertThat(policy.playbackBufferMs).isEqualTo(5_000)
+    }
+
+    @Test
+    fun `multiview caps normal memory recording recovery threshold`() {
+        val baseline = PlaybackBufferPolicies.forPlayback(
+            isLive = false,
+            compatibilityMode = false,
+            lowMemoryDevice = false
+        )
+        val policy = PlaybackBufferPolicies.constrainForMultiView(baseline, isLive = false)
+
+        assertThat(baseline.rebufferMs).isEqualTo(18_000)
+        assertThat(policy.minBufferMs).isEqualTo(10_000)
+        assertThat(policy.rebufferMs).isEqualTo(10_000)
+        assertThat(policy.playbackBufferMs).isEqualTo(8_000)
+    }
+
+    @Test
     fun `normal live uses production live buffer baseline`() {
         val policy = PlaybackBufferPolicies.forPlayback(isLive = true, compatibilityMode = false)
 

@@ -1,5 +1,6 @@
 package com.streamvault.app.storage
 
+import android.util.Log
 import com.streamvault.data.storage.SmbStorageClient
 import com.streamvault.data.storage.SmbStorageProfile
 import com.streamvault.data.storage.SmbStorageProfileStore
@@ -20,6 +21,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /** SMB durability adapter used by StreamVault's existing live-timeshift sessions. */
 @Singleton
@@ -31,11 +34,19 @@ class SmbLiveTimeshiftArchive @Inject constructor(
     private val sessionProfiles = ConcurrentHashMap<String, SmbStorageProfile>()
     private val sessionTypes = ConcurrentHashMap<String, StreamType>()
     private val pendingUploads = ConcurrentHashMap<String, MutableSet<Job>>()
+    private val uploadConfirmed = ConcurrentHashMap.newKeySet<String>()
+    private val uploadFailureLogged = ConcurrentHashMap.newKeySet<String>()
+    private val uploadPermits = Semaphore(permits = 1)
 
     override suspend fun startSession(sessionId: String, streamType: StreamType) {
-        val profile = profileStore.enabledProfile() ?: return
+        val profile = profileStore.enabledProfile()
+        if (profile == null) {
+            Log.w(TAG, "session-disabled type=$streamType reason=no-enabled-profile")
+            return
+        }
         sessionProfiles[sessionId] = profile
         sessionTypes[sessionId] = streamType
+        Log.i(TAG, "session-start type=$streamType session=${sessionId.hashCode()}")
     }
 
     override fun archiveSegment(
@@ -49,12 +60,23 @@ class SmbLiveTimeshiftArchive @Inject constructor(
         val safeSourceName = source.name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
         val archiveName = "${capturedAtMs}_${durationMs.coerceAtLeast(0L)}_$safeSourceName"
         val job = scope.launch {
-            smbClient.uploadFile(
-                profile = profile,
-                folder = "${profile.timeshiftFolder.trim('/')}/$sessionId",
-                relativePath = archiveName,
-                source = source
-            )
+            uploadPermits.withPermit {
+                try {
+                    smbClient.uploadFile(
+                        profile = profile,
+                        folder = "${profile.timeshiftFolder.trim('/')}/$sessionId",
+                        relativePath = archiveName,
+                        source = source
+                    )
+                    if (uploadConfirmed.add(sessionId)) {
+                        Log.i(TAG, "first-upload-ok session=${sessionId.hashCode()} bytes=${source.length()}")
+                    }
+                } catch (t: Throwable) {
+                    if (uploadFailureLogged.add(sessionId)) {
+                        Log.w(TAG, "first-upload-failed session=${sessionId.hashCode()} ${safeFailureSummary(t)}")
+                    }
+                }
+            }
         }
         val jobs = pendingUploads.computeIfAbsent(sessionId) { ConcurrentHashMap.newKeySet() }
         jobs += job
@@ -117,6 +139,8 @@ class SmbLiveTimeshiftArchive @Inject constructor(
         pendingUploads.remove(sessionId)
         sessionProfiles.remove(sessionId)
         sessionTypes.remove(sessionId)
+        uploadConfirmed.remove(sessionId)
+        uploadFailureLogged.remove(sessionId)
     }
 
     private fun parseArchivedSegment(name: String): ArchivedSegment? {
@@ -137,6 +161,19 @@ class SmbLiveTimeshiftArchive @Inject constructor(
         val durationMs: Long,
         val originalName: String
     )
+
+    /** Produces a credential-safe diagnostic without hostnames, paths, or server messages. */
+    private fun safeFailureSummary(error: Throwable): String {
+        val types = generateSequence(error) { it.cause }
+            .take(4)
+            .map { it::class.java.simpleName.ifBlank { "Throwable" } }
+            .joinToString("<-")
+        return "cause=$types"
+    }
+
+    private companion object {
+        private const val TAG = "SmbTimeshiftArchive"
+    }
 }
 
 @Module

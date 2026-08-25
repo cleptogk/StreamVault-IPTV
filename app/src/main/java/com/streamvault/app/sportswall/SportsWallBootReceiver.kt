@@ -6,7 +6,9 @@ import android.content.Intent
 
 class SportsWallBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
+        if (intent?.action == Intent.ACTION_BOOT_COMPLETED &&
+            SportsWallApiStartupSettings.startsAutomatically(context)
+        ) {
             SportsWallApiService.start(context)
         }
     }

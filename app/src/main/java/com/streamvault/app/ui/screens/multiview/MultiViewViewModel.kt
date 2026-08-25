@@ -75,6 +75,7 @@ class MultiViewViewModel @Inject constructor(
     private val lastDroppedFramesBySlot = mutableMapOf<Int, Int>()
     private val slotStartupJobs = mutableMapOf<Int, kotlinx.coroutines.Job>()
     private val slotErrorJobs = mutableMapOf<Int, kotlinx.coroutines.Job>()
+    private val slotDiagnosticJobs = mutableMapOf<Int, kotlinx.coroutines.Job>()
     private val slotGenerations = mutableMapOf<Int, Long>()
     private var slotInitVersion: Long = 0L
     private var playbackSessionActive: Boolean = false
@@ -246,6 +247,7 @@ class MultiViewViewModel @Inject constructor(
         telemetryJob?.cancel()
         cancelSlotStartupJobs()
         cancelSlotErrorJobs()
+        cancelSlotDiagnosticJobs()
         releaseActivePlayers()
         lastDroppedFramesBySlot.clear()
         val channels = multiViewManager.slots.value
@@ -350,11 +352,9 @@ class MultiViewViewModel @Inject constructor(
                             is Result.Error -> throw IllegalStateException(result.message)
                             Result.Loading -> throw IllegalStateException("Stream info still loading for ${slot.title}")
                         }.let { resolved ->
-                            if (channel.categoryName == "Channels DVR" && channel.providerId == 0L) {
-                                resolved.copy(isLive = false)
-                            } else {
-                                resolved
-                            }
+                            resolved.copy(
+                                isLive = !(channel.categoryName == "Channels DVR" && channel.providerId == 0L)
+                            )
                         }
 
                         if (initVersion != slotInitVersion || slotGen != slotGenerations.getOrDefault(index, 0L)) {
@@ -382,6 +382,7 @@ class MultiViewViewModel @Inject constructor(
                         // Success: publish engine
                         playerEngines[index] = localEngine
                         enginePublished = true
+                        observeSlotDiagnostics(index, localEngine, initVersion)
 
                         // Copy the engine into the slot UI state as well
                         updateSlot(index) {
@@ -514,6 +515,8 @@ class MultiViewViewModel @Inject constructor(
     fun clearSlot(slotIndex: Int) {
         slotStartupJobs.remove(slotIndex)?.cancel()
         slotErrorJobs.remove(slotIndex)?.cancel()
+        slotDiagnosticJobs.remove(slotIndex)?.cancel()
+        multiViewManager.clearPlaybackDiagnostics(slotIndex)
         slotGenerations[slotIndex] = (slotGenerations.getOrDefault(slotIndex, 0L) + 1L)
         if (playbackSessionActive) {
             playerEngines.remove(slotIndex)?.let { engine ->
@@ -699,6 +702,8 @@ class MultiViewViewModel @Inject constructor(
         multiViewManager.setPauseAllRequested(false)
         cancelSlotStartupJobs()
         cancelSlotErrorJobs()
+        cancelSlotDiagnosticJobs()
+        multiViewManager.clearAllPlaybackDiagnostics()
         playerEngines.values.forEach { engine ->
             runCatching { engine.stop() }
             runCatching { engine.setVolume(0f) }
@@ -832,6 +837,40 @@ class MultiViewViewModel @Inject constructor(
     private fun cancelSlotErrorJobs() {
         slotErrorJobs.values.forEach { job -> job.cancel() }
         slotErrorJobs.clear()
+    }
+
+    private fun cancelSlotDiagnosticJobs() {
+        slotDiagnosticJobs.values.forEach { job -> job.cancel() }
+        slotDiagnosticJobs.clear()
+    }
+
+    private fun observeSlotDiagnostics(index: Int, engine: PlayerEngine, initVersion: Long) {
+        slotDiagnosticJobs.remove(index)?.cancel()
+        slotDiagnosticJobs[index] = viewModelScope.launch {
+            combine(
+                engine.playbackState,
+                engine.isPlaying,
+                engine.videoFormat,
+                engine.timeshiftState
+            ) { playbackState, isPlaying, videoFormat, timeshift ->
+                MultiViewPanePlaybackDiagnostics(
+                    pane = index + 1,
+                    playbackState = playbackState.name,
+                    isPlaying = isPlaying,
+                    videoWidth = videoFormat.width,
+                    videoHeight = videoFormat.height,
+                    timeshiftStatus = timeshift.status.name,
+                    timeshiftBackend = timeshift.backend.name,
+                    bufferedDurationMs = timeshift.bufferedDurationMs,
+                    offsetFromLiveMs = timeshift.currentOffsetFromLiveMs,
+                    updatedAtMs = System.currentTimeMillis()
+                )
+            }.collect { diagnostics ->
+                if (initVersion == slotInitVersion) {
+                    multiViewManager.updatePlaybackDiagnostics(index, diagnostics)
+                }
+            }
+        }
     }
 
     private fun observeSlotErrors(index: Int, engine: PlayerEngine, initVersion: Long) {

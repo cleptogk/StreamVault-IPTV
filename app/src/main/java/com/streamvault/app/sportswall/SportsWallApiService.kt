@@ -82,5 +82,9 @@ class SportsWallApiService : Service() {
             val intent = Intent(context, SportsWallApiService::class.java)
             runCatching { ContextCompat.startForegroundService(context, intent) }
         }
+
+        fun stop(context: Context) {
+            context.stopService(Intent(context, SportsWallApiService::class.java))
+        }
     }
 }

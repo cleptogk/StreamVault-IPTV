@@ -265,6 +265,9 @@ class ChannelRepositoryImpl @Inject constructor(
                     proxyPort = resolvedStream.proxyPort,
                     streamType = StreamType.fromContainerExtension(resolvedStream.containerExtension),
                     containerExtension = resolvedStream.containerExtension,
+                    // This repository resolves linear TV Channel objects. HLS itself is
+                    // ambiguous, so preserve the domain-level live semantic explicitly.
+                    isLive = true,
                     expirationTime = resolvedStream.expirationTime
                 )
             )

@@ -7,6 +7,7 @@ import com.streamvault.app.navigation.ExternalDestination
 import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.model.associateByAnyRawId
 import com.streamvault.app.ui.screens.multiview.MultiViewManager
+import com.streamvault.app.ui.screens.multiview.MultiViewPanePlaybackDiagnostics
 import com.streamvault.app.ui.screens.multiview.MultiViewPerformanceMode
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.Channel
@@ -54,6 +55,7 @@ class SportsWallControlException(
 
 interface SportsWallControlPort {
     suspend fun state(): SportsWallState
+    fun timeshiftDiagnostics(): List<MultiViewPanePlaybackDiagnostics> = emptyList()
     suspend fun searchChannels(query: String, limit: Int): List<SportsWallChannelSummary>
     suspend fun setLayout(channelIds: List<Long?>, launch: Boolean): SportsWallState
     suspend fun assignPane(pane: Int, channelId: Long, launch: Boolean): SportsWallState
@@ -78,6 +80,9 @@ class SportsWallController @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val preferencesRepository: PreferencesRepository
 ) : SportsWallControlPort {
+
+    override fun timeshiftDiagnostics(): List<MultiViewPanePlaybackDiagnostics> =
+        multiViewManager.playbackDiagnostics.value
 
     override suspend fun state(): SportsWallState = SportsWallState(
         panes = multiViewManager.slots.value.mapIndexed { index, channel ->

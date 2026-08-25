@@ -34,6 +34,7 @@ import com.streamvault.data.sync.XtreamIndexWorker
 import com.streamvault.data.sync.ProviderSyncLifecycle
 import com.streamvault.player.timeshift.TimeshiftDiskManager
 import com.streamvault.app.sportswall.SportsWallApiService
+import com.streamvault.app.sportswall.SportsWallApiStartupSettings
 import javax.inject.Inject
 import okhttp3.OkHttpClient
 
@@ -74,7 +75,9 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
-        SportsWallApiService.start(this)
+        if (SportsWallApiStartupSettings.startsAutomatically(this)) {
+            SportsWallApiService.start(this)
+        }
         CrashReportStore.install(this)
         runtimeDiagnosticsManager.start()
         applicationScope.launch {

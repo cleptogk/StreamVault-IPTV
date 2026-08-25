@@ -3,6 +3,7 @@ package com.streamvault.player.timeshift
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
+import android.util.Log
 import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
@@ -29,6 +30,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -43,12 +45,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
-internal interface LiveTimeshiftManager {
+internal interface LiveTimeshiftManager : PlaybackTimeshiftCaptureSink {
     val state: StateFlow<LiveTimeshiftState>
     suspend fun startSession(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig)
     suspend fun stopSession()
     suspend fun createSnapshot(): LiveTimeshiftSnapshot?
     suspend fun createResumeSnapshot(pausedAtMs: Long): LiveTimeshiftSnapshot?
+    suspend fun createContinuationSnapshot(afterToken: String): LiveTimeshiftSnapshot?
+    suspend fun startIndependentCapture()
+    suspend fun stopIndependentCapture()
     suspend fun releaseRetiredSnapshots()
     fun detachComponentCallbacks()
     suspend fun close()
@@ -132,10 +137,18 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
     override val state: StateFlow<LiveTimeshiftState> = _state.asStateFlow()
     private val diskManager = TimeshiftDiskManager(context)
 
+    @Volatile
     private var activeSession: Session? = null
     private val retiredSnapshotDirs = ArrayDeque<File>()
     private var closed = false
     private val callbacksRegistered = AtomicBoolean(true)
+
+    override fun observePlaylist(url: String, body: ByteArray) {
+        (activeSession as? HlsSession)?.observePlaylist(url, body)
+    }
+
+    override fun openSegment(url: String): PlaybackTimeshiftSegmentCapture? =
+        (activeSession as? HlsSession)?.openObservedSegment(url)
 
     override suspend fun startSession(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig) {
         withContext(Dispatchers.IO) {
@@ -179,6 +192,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
 
                 val backend = chooseBackend(config)
                 if (backend == null) {
+                    Log.w(TAG, "session-unavailable preference=${config.backendPreference}")
                     diskManager.unregisterActiveSession(sessionDir)
                     sessionDir.deleteRecursively()
                     _state.value = LiveTimeshiftState(
@@ -227,6 +241,10 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 }
                 activeSession = session
                 liveTimeshiftArchive.startSession(session.sessionId, support.streamType)
+                Log.i(
+                    TAG,
+                    "session-start type=${support.streamType} backend=$backend depthMinutes=${config.depthMinutes}"
+                )
                 _state.value = LiveTimeshiftState(
                     enabled = true,
                     supported = true,
@@ -240,6 +258,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (t: Throwable) {
+                        Log.w(TAG, "session-failed ${safeFailureSummary(t)}")
                         _state.value = _state.value.copy(
                             enabled = true,
                             supported = true,
@@ -303,6 +322,18 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 current
             } ?: return@withContext null
 
+            if (session is HlsSession) {
+                session.createPauseBoundarySnapshot(pausedAtMs)?.let { return@withContext it }
+            }
+
+            val elapsedPauseMs = (System.currentTimeMillis() - pausedAtMs).coerceAtLeast(0L)
+            val local = session.createSnapshot()
+            if (local != null && local.durationMs >= elapsedPauseMs) {
+                return@withContext local.copy(
+                    resumePositionMs = (local.durationMs - elapsedPauseMs).coerceAtLeast(0L)
+                )
+            }
+
             val restoredDir = File(session.sessionDir, "archive-${System.currentTimeMillis()}").apply { mkdirs() }
             val archived = liveTimeshiftArchive.restoreSince(session.sessionId, pausedAtMs, restoredDir)
             if (archived != null) {
@@ -315,11 +346,28 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 )
             }
             restoredDir.deleteRecursively()
-
-            val local = session.createSnapshot() ?: return@withContext null
-            val elapsedPauseMs = (System.currentTimeMillis() - pausedAtMs).coerceAtLeast(0L)
-            local.copy(resumePositionMs = (local.durationMs - elapsedPauseMs).coerceAtLeast(0L))
+            local?.copy(resumePositionMs = 0L)
         }
+
+    override suspend fun createContinuationSnapshot(afterToken: String): LiveTimeshiftSnapshot? =
+        withContext(Dispatchers.IO) {
+            val session = mutex.withLock {
+                val current = activeSession as? HlsSession ?: return@withLock null
+                current.activeSnapshotDir?.let { retiredSnapshotDirs.addLast(it) }
+                current
+            } ?: return@withContext null
+            session.createContinuationSnapshot(afterToken)
+        }
+
+    override suspend fun startIndependentCapture() {
+        val session = mutex.withLock { activeSession as? HlsSession } ?: return
+        session.startIndependentCapture()
+    }
+
+    override suspend fun stopIndependentCapture() {
+        val session = mutex.withLock { activeSession as? HlsSession } ?: return
+        session.stopIndependentCapture()
+    }
 
     override suspend fun releaseRetiredSnapshots() {
         withContext(Dispatchers.IO) {
@@ -385,6 +433,23 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
             StreamType.SMOOTH_STREAMING -> SupportResult(false, "SmoothStreaming streams cannot use local rewind yet.", type)
             else -> SupportResult(true, null, type)
         }
+    }
+
+    /** Produces a credential-safe diagnostic without URLs, headers, or server messages. */
+    private fun safeFailureSummary(error: Throwable): String {
+        val types = generateSequence(error) { it.cause }
+            .take(4)
+            .map { it::class.java.simpleName.ifBlank { "Throwable" } }
+            .joinToString("<-")
+        val httpCode = generateSequence(error) { it.cause }
+            .mapNotNull { throwable ->
+                Regex("(?:HTTP|status(?: code)?)\\s*[:=]?\\s*(\\d{3})", RegexOption.IGNORE_CASE)
+                    .find(throwable.message.orEmpty())
+                    ?.groupValues
+                    ?.getOrNull(1)
+            }
+            .firstOrNull()
+        return if (httpCode == null) "cause=$types" else "cause=$types http=$httpCode"
     }
 
     private fun inferType(streamInfo: StreamInfo): StreamType {
@@ -484,6 +549,10 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
 
         protected fun clearTrackedCall(call: okhttp3.Call) {
             activeCall.compareAndSet(call, null)
+        }
+
+        protected fun cancelActiveCall() {
+            activeCall.getAndSet(null)?.cancel()
         }
 
         protected fun <T> executeRequest(request: Request, block: (Response) -> T): T {
@@ -679,32 +748,79 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         // Track discontinuity sequence so ad-break / stream-restart boundaries don't
         // cause us to re-download segments whose sequence numbers reset after a discontinuity.
         private var lastDiscontinuitySequence = -1L
+        private val allowedPlaylistUrls = ConcurrentHashMap.newKeySet<String>().apply { add(streamInfo.url) }
+        private val playlistTreeEstablished = AtomicBoolean(false)
+        private val observedMediaPlaylistUrl = AtomicReference<String?>(null)
+        private val observedSegmentMetadata = ConcurrentHashMap<String, RemoteHlsSegment>()
+        private val capturingSegmentUrls = ConcurrentHashMap.newKeySet<String>()
+        private val retainedSegmentUrls = ConcurrentHashMap.newKeySet<String>()
+        private var independentCaptureJob: Job? = null
 
         override suspend fun capture() {
-            var currentPlaylistUrl = streamInfo.url
+            // Playback's DataSource supplies playlists and segment bytes. Keeping this job
+            // alive preserves the established session lifecycle without a second request.
+            awaitCancellation()
+        }
+
+        suspend fun startIndependentCapture() {
+            if (independentCaptureJob?.isActive == true) return
+            independentCaptureJob = scope.launch {
+                // The snapshot prepare closes Media3's live DataSource synchronously. A short
+                // guard prevents overlap on providers that enforce one active stream session.
+                delay(INDEPENDENT_CAPTURE_HANDOFF_DELAY_MS)
+                try {
+                    Log.i(TAG, "handoff-capture-start")
+                    captureFromNetwork()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (t: Throwable) {
+                    Log.w(TAG, "handoff-capture-failed ${safeFailureSummary(t)}")
+                    _state.value = _state.value.copy(
+                        status = LiveTimeshiftStatus.FAILED,
+                        message = "Live rewind capture stopped during pause."
+                    )
+                }
+            }
+        }
+
+        suspend fun stopIndependentCapture() {
+            val job = independentCaptureJob ?: return
+            independentCaptureJob = null
+            job.cancel()
+            cancelActiveCall()
+            job.join()
+        }
+
+        private suspend fun captureFromNetwork() {
+            var currentPlaylistUrl = observedMediaPlaylistUrl.get() ?: streamInfo.url
             var consecutiveErrors = 0
+            var capturedAnySegment = false
             while (true) {
                 currentCoroutineContext().ensureActive()
                 try {
-                    val playlistText = fetchText(currentPlaylistUrl)
+                    val parsed = parsePlaylist(currentPlaylistUrl, fetchText(currentPlaylistUrl))
                     consecutiveErrors = 0
-                    val parsed = parsePlaylist(currentPlaylistUrl, playlistText)
                     when (parsed) {
                         is ParsedHlsPlaylist.Master -> currentPlaylistUrl = parsed.bestVariantUrl
                         is ParsedHlsPlaylist.Media -> {
-                            // On a discontinuity-sequence change, reset media-sequence tracking
-                            // so segments from the new period are captured fresh.
-                            if (parsed.discontinuitySequence != lastDiscontinuitySequence && lastDiscontinuitySequence >= 0L) {
+                            if (parsed.discontinuitySequence != lastDiscontinuitySequence &&
+                                lastDiscontinuitySequence >= 0L
+                            ) {
                                 lastProcessedSequence = -1L
                             }
                             lastDiscontinuitySequence = parsed.discontinuitySequence
-
                             parsed.segments.forEach { remoteSegment ->
                                 currentCoroutineContext().ensureActive()
                                 if (remoteSegment.mediaSequence <= lastProcessedSequence) return@forEach
                                 lastProcessedSequence = remoteSegment.mediaSequence
+                                if (remoteSegment.uri in retainedSegmentUrls) return@forEach
                                 if (backend == LiveTimeshiftBackend.DISK) checkDiskAndBudget()
                                 val retained = retainHlsSegment(remoteSegment)
+                                retainedSegmentUrls += remoteSegment.uri
+                                if (!capturedAnySegment) {
+                                    capturedAnySegment = true
+                                    Log.i(TAG, "handoff-first-segment bytes=${retained.file?.length() ?: retained.payload?.size ?: 0}")
+                                }
                                 retained.file?.let {
                                     liveTimeshiftArchive.archiveSegment(
                                         sessionId = sessionId,
@@ -719,10 +835,10 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                                     pruneHlsSegmentsLocked()
                                     runningSegmentDurationMs
                                 }
-                                updateWindow(windowDuration)
+                                updateWindow(windowDuration, "Live rewind is capturing during paused playback.")
                             }
-                            if (parsed.endList) break
-                            delay((parsed.targetDurationSeconds.coerceAtLeast(2) * 1000L) / 2L)
+                            if (parsed.endList) return
+                            delay((parsed.targetDurationSeconds.coerceAtLeast(2) * 1_000L) / 2L)
                         }
                     }
                 } catch (t: Throwable) {
@@ -734,11 +850,128 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
             }
         }
 
+        fun observePlaylist(url: String, body: ByteArray) {
+            if (body.isEmpty()) return
+            if (url !in allowedPlaylistUrls && !playlistTreeEstablished.compareAndSet(false, true)) return
+            allowedPlaylistUrls.add(url)
+            val parsed = runCatching { parsePlaylist(url, body.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+            when (parsed) {
+                is ParsedHlsPlaylist.Master -> {
+                    playlistTreeEstablished.set(true)
+                    allowedPlaylistUrls.addAll(parsed.variantUrls)
+                }
+                is ParsedHlsPlaylist.Media -> {
+                    observedMediaPlaylistUrl.set(url)
+                    parsed.segments.forEach { segment ->
+                        playlistTreeEstablished.set(true)
+                        observedSegmentMetadata[segment.uri] = segment
+                    }
+                }
+            }
+        }
+
+        fun openObservedSegment(url: String): PlaybackTimeshiftSegmentCapture? {
+            val remote = observedSegmentMetadata[url] ?: return null
+            if (!capturingSegmentUrls.add(url) || url in retainedSegmentUrls) return null
+            if (backend == LiveTimeshiftBackend.DISK && runCatching { checkDiskAndBudget() }.isFailure) {
+                capturingSegmentUrls.remove(url)
+                return null
+            }
+            val id = sequence.incrementAndGet()
+            val targetFile = if (backend == LiveTimeshiftBackend.DISK) File(sessionDir, "segment-$id.ts") else null
+            val output = targetFile?.outputStream()?.buffered() ?: ByteArrayOutputStream()
+            val completed = AtomicBoolean(false)
+            return object : PlaybackTimeshiftSegmentCapture {
+                override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                    if (!completed.get() && length > 0) output.write(buffer, offset, length)
+                }
+
+                override fun complete() {
+                    if (!completed.compareAndSet(false, true)) return
+                    output.flush()
+                    output.close()
+                    scope.launch { retainObservedSegment(url, remote, targetFile, output) }
+                }
+
+                override fun abort() {
+                    if (!completed.compareAndSet(false, true)) return
+                    runCatching { output.close() }
+                    targetFile?.delete()
+                    capturingSegmentUrls.remove(url)
+                }
+            }
+        }
+
+        private suspend fun retainObservedSegment(
+            url: String,
+            remote: RemoteHlsSegment,
+            targetFile: File?,
+            output: java.io.OutputStream
+        ) {
+            capturingSegmentUrls.remove(url)
+            val payload = if (targetFile == null) (output as ByteArrayOutputStream).toByteArray() else null
+            val hasContent = targetFile?.length()?.let { it > 0L } ?: (payload != null && payload.isNotEmpty())
+            if (!hasContent || !retainedSegmentUrls.add(url)) {
+                targetFile?.delete()
+                return
+            }
+            observedSegmentMetadata.remove(url)
+            val capturedAtMs = System.currentTimeMillis()
+            val retained = HlsSegmentSnapshot(url, remote.durationMs, targetFile, payload, capturedAtMs)
+            retained.file?.let {
+                liveTimeshiftArchive.archiveSegment(
+                    sessionId = sessionId,
+                    source = it,
+                    durationMs = retained.durationMs,
+                    capturedAtMs = capturedAtMs
+                )
+            }
+            val windowDuration = segmentMutex.withLock {
+                runningSegmentDurationMs += retained.durationMs
+                segments += retained
+                pruneHlsSegmentsLocked()
+                runningSegmentDurationMs
+            }
+            updateWindow(windowDuration, "Live rewind is recording the playback stream.")
+        }
+
+        override suspend fun stop() {
+            stopIndependentCapture()
+            super.stop()
+        }
+
         override suspend fun createSnapshot(): LiveTimeshiftSnapshot? {
-            val snapshotId = sequence.incrementAndGet()
-            val snapshotDir = File(sessionDir, "snapshot-$snapshotId").apply { mkdirs() }
-            activeSnapshotDir = snapshotDir
             val snapshotSegments = segmentMutex.withLock { segments.toList() }
+            return createSnapshotFrom(snapshotSegments, "snapshot")
+        }
+
+        suspend fun createPauseBoundarySnapshot(pausedAtMs: Long): LiveTimeshiftSnapshot? {
+            val snapshotSegments = segmentMutex.withLock {
+                val current = segments.toList()
+                if (current.isEmpty()) return@withLock emptyList()
+                val boundaryIndex = current.indexOfLast { it.capturedAtMs <= pausedAtMs }
+                    .coerceAtLeast(0)
+                current.drop(boundaryIndex)
+            }
+            return createSnapshotFrom(snapshotSegments, "resume")?.copy(resumePositionMs = 0L)
+        }
+
+        suspend fun createContinuationSnapshot(afterToken: String): LiveTimeshiftSnapshot? {
+            val snapshotSegments = segmentMutex.withLock {
+                val current = segments.toList()
+                val boundaryIndex = current.indexOfLast { it.remoteUrl == afterToken }
+                if (boundaryIndex >= 0) current.drop(boundaryIndex + 1) else current
+            }
+            return createSnapshotFrom(snapshotSegments, "continue")
+        }
+
+        private fun createSnapshotFrom(
+            snapshotSegments: List<HlsSegmentSnapshot>,
+            prefix: String
+        ): LiveTimeshiftSnapshot? {
+            val snapshotId = sequence.incrementAndGet()
+            val snapshotDir = File(sessionDir, "$prefix-$snapshotId").apply { mkdirs() }
+            activeSnapshotDir = snapshotDir
             if (snapshotSegments.isEmpty()) return null
             val playlist = File(snapshotDir, "index.m3u8")
             val targetDurationSeconds = snapshotSegments.maxOf { ((it.durationMs + 999L) / 1000L).toInt().coerceAtLeast(1) }
@@ -763,7 +996,8 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
             return LiveTimeshiftSnapshot(
                 url = playlist.toURI().toString(),
                 durationMs = snapshotSegments.sumOf { it.durationMs },
-                backend = backend
+                backend = backend,
+                continuationToken = snapshotSegments.last().remoteUrl
             )
         }
 
@@ -772,10 +1006,10 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
             return if (backend == LiveTimeshiftBackend.DISK) {
                 val target = File(sessionDir, "segment-$id.ts")
                 streamSegmentToDisk(remote.uri, target)
-                HlsSegmentSnapshot(remote.uri, remote.durationMs, target, null)
+                HlsSegmentSnapshot(remote.uri, remote.durationMs, target, null, System.currentTimeMillis())
             } else {
                 val bytes = fetchBytes(remote.uri)
-                HlsSegmentSnapshot(remote.uri, remote.durationMs, null, bytes)
+                HlsSegmentSnapshot(remote.uri, remote.durationMs, null, bytes, System.currentTimeMillis())
             }
         }
 
@@ -791,6 +1025,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
             while (runningSegmentDurationMs > effectiveDepthMs && segments.isNotEmpty()) {
                 val removed = segments.removeFirst()
                 removed.file?.delete()
+                retainedSegmentUrls.remove(removed.remoteUrl)
                 runningSegmentDurationMs -= removed.durationMs
             }
         }
@@ -826,9 +1061,10 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                         variants += pendingBandwidth to resolveRelativeUrl(baseUrl, next)
                     }
                 }
+                val variantUrls = variants.map { it.second }
                 val bestVariantUrl = variants.sortedBy { it.first }.getOrNull(variants.size / 2)?.second
                     ?: throw IOException("No playable HLS variants were available.")
-                return ParsedHlsPlaylist.Master(bestVariantUrl)
+                return ParsedHlsPlaylist.Master(bestVariantUrl, variantUrls)
             }
 
             var targetDurationSeconds = 6
@@ -899,7 +1135,8 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         val remoteUrl: String,
         val durationMs: Long,
         val file: File?,
-        val payload: ByteArray?
+        val payload: ByteArray?,
+        val capturedAtMs: Long = System.currentTimeMillis()
     )
 
     private data class RemoteHlsSegment(
@@ -909,7 +1146,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
     )
 
     private sealed interface ParsedHlsPlaylist {
-        data class Master(val bestVariantUrl: String) : ParsedHlsPlaylist
+        data class Master(val bestVariantUrl: String, val variantUrls: List<String>) : ParsedHlsPlaylist
         data class Media(
             val targetDurationSeconds: Int,
             val endList: Boolean,
@@ -1283,6 +1520,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
     )
 
     private companion object {
+        private const val TAG = "LiveTimeshiftManager"
         private const val PROGRESSIVE_CHUNK_MS = 2_000L
         private const val PROGRESSIVE_READ_BUFFER_SIZE = 65_536
         private const val MAX_PROGRESSIVE_RETRIES = 10
@@ -1290,6 +1528,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         private const val MAX_DASH_CONSECUTIVE_ERRORS = 10
         private const val MAX_RETRY_DELAY_MS = 30_000L
         private const val HLS_ERROR_RETRY_DELAY_MS = 2_000L
+        private const val INDEPENDENT_CAPTURE_HANDOFF_DELAY_MS = 750L
         private const val DASH_ERROR_RETRY_DELAY_MS = 2_000L
         private const val MIN_FREE_DISK_BYTES = 200L * 1024 * 1024  // 200 MB
     }

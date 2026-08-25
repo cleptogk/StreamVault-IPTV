@@ -330,7 +330,11 @@ class Media3PlayerEngine @Inject constructor(
     ).also {
         it.bind { exoPlayer }
     }
-    private val dataSourceFactoryProvider = PlayerDataSourceFactoryProvider(context, okHttpClient)
+    private val dataSourceFactoryProvider = PlayerDataSourceFactoryProvider(
+        context,
+        okHttpClient,
+        liveTimeshiftManager
+    )
     private val mediaSourceFactory = PlayerMediaSourceFactory(dataSourceFactoryProvider)
     private val preloadCoordinator = PreloadCoordinator()
     private val compatibilityProfile: PlaybackCompatibilityProfile = DefaultPlaybackCompatibilityProfile
@@ -345,6 +349,8 @@ class Media3PlayerEngine @Inject constructor(
     private var pendingTimeshiftSeekMs: Long? = null
     private var pendingTimeshiftSeekToEnd: Boolean = false
     private var pendingTimeshiftAutoPlay: Boolean = false
+    private var timeshiftSnapshotContinuationToken: String? = null
+    private var timeshiftContinuationPending: Boolean = false
     private var lastAudioRendererRecoveryAtMs: Long = 0L
 
     private data class PendingLearnedAudioFallback(
@@ -688,6 +694,8 @@ class Media3PlayerEngine @Inject constructor(
         pendingTimeshiftSeekMs = null
         pendingTimeshiftSeekToEnd = false
         pendingTimeshiftAutoPlay = false
+        timeshiftSnapshotContinuationToken = null
+        timeshiftContinuationPending = false
         if (wasSnapshot) {
             exoPlayer?.stop()
             exoPlayer?.clearMediaItems()
@@ -711,14 +719,23 @@ class Media3PlayerEngine @Inject constructor(
         pendingTimeshiftSeekMs = null
         pendingTimeshiftSeekToEnd = false
         pendingTimeshiftAutoPlay = false
+        timeshiftSnapshotContinuationToken = null
+        timeshiftContinuationPending = false
         if (wasSnapshot) {
             exoPlayer?.stop()
             exoPlayer?.clearMediaItems()
         }
-        prepareInternal(liveInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
-        syncTimeshiftState()
         if (wasSnapshot) {
-            scope.launch { liveTimeshiftManager.releaseRetiredSnapshots() }
+            scope.launch {
+                liveTimeshiftManager.stopIndependentCapture()
+                if (activeLiveTimeshiftStreamInfo !== liveInfo) return@launch
+                prepareInternal(liveInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
+                syncTimeshiftState()
+                liveTimeshiftManager.releaseRetiredSnapshots()
+            }
+        } else {
+            prepareInternal(liveInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
+            syncTimeshiftState()
         }
     }
 
@@ -1542,6 +1559,7 @@ class Media3PlayerEngine @Inject constructor(
                     statsCollector.incrementRebufferCount()
                 }
                 if (_playbackState.value == PlaybackState.READY) {
+                    timeshiftContinuationPending = false
                     _retryStatus.value = null
                     retryAttempt = resolveRetryAttemptAfterReady(
                         currentAttempt = retryAttempt,
@@ -1561,6 +1579,17 @@ class Media3PlayerEngine @Inject constructor(
                             playerOrNull()?.seekTo(target)
                         }
                     }
+                    if (isPlayingTimeshiftSnapshot && pendingTimeshiftAutoPlay) {
+                        pendingTimeshiftAutoPlay = false
+                        playerOrNull()?.playWhenReady = true
+                    }
+                }
+                if (
+                    _playbackState.value == PlaybackState.ENDED &&
+                    isPlayingTimeshiftSnapshot &&
+                    !timeshiftContinuationPending
+                ) {
+                    timeshiftSnapshotContinuationToken?.let(::switchToTimeshiftContinuationSnapshot)
                 }
                 if (_playbackState.value == PlaybackState.READY && _isPlaying.value) {
                     markPlaybackStarted("ready-while-playing")
@@ -1651,8 +1680,10 @@ class Media3PlayerEngine @Inject constructor(
             pendingTimeshiftSeekMs = positionMs
             pendingTimeshiftSeekToEnd = seekToEnd
             pendingTimeshiftAutoPlay = autoPlay
+            timeshiftSnapshotContinuationToken = snapshot.continuationToken
             val snapshotInfo = liveInfo.copy(url = snapshot.url, streamType = inferSnapshotStreamType(snapshot.url))
             prepareInternal(snapshotInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = autoPlay)
+            liveTimeshiftManager.startIndependentCapture()
             liveTimeshiftManager.releaseRetiredSnapshots()
             syncTimeshiftState()
         }
@@ -1672,10 +1703,36 @@ class Media3PlayerEngine @Inject constructor(
             pendingTimeshiftSeekMs = snapshot.resumePositionMs
             pendingTimeshiftSeekToEnd = false
             pendingTimeshiftAutoPlay = true
+            timeshiftSnapshotContinuationToken = snapshot.continuationToken
             val snapshotInfo = liveInfo.copy(url = snapshot.url, streamType = inferSnapshotStreamType(snapshot.url))
             prepareInternal(snapshotInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
             liveTimeshiftManager.releaseRetiredSnapshots()
             syncTimeshiftState()
+        }
+    }
+
+    private fun switchToTimeshiftContinuationSnapshot(afterToken: String) {
+        val liveInfo = activeLiveTimeshiftStreamInfo ?: return
+        timeshiftContinuationPending = true
+        scope.launch {
+            val snapshot = liveTimeshiftManager.createContinuationSnapshot(afterToken)
+            if (activeLiveTimeshiftStreamInfo !== liveInfo || !isPlayingTimeshiftSnapshot) {
+                timeshiftContinuationPending = false
+                return@launch
+            }
+            if (snapshot == null) {
+                timeshiftContinuationPending = false
+                seekToLiveEdge()
+                return@launch
+            }
+            pendingTimeshiftSeekMs = snapshot.resumePositionMs
+            pendingTimeshiftSeekToEnd = false
+            pendingTimeshiftAutoPlay = true
+            timeshiftSnapshotContinuationToken = snapshot.continuationToken
+            val snapshotInfo = liveInfo.copy(url = snapshot.url, streamType = inferSnapshotStreamType(snapshot.url))
+            prepareInternal(snapshotInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
+            liveTimeshiftManager.releaseRetiredSnapshots()
+            syncTimeshiftState(messageOverride = "Continuing delayed live playback…")
         }
     }
 

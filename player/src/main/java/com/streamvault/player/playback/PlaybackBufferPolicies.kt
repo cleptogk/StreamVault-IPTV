@@ -140,17 +140,28 @@ internal object PlaybackBufferPolicies {
     fun constrainForMultiView(
         policy: PlaybackBufferPolicy,
         isLive: Boolean
-    ): PlaybackBufferPolicy = if (isLive) {
-        policy.copy(
-            label = "wall-live",
-            minBufferMs = MULTI_VIEW_LIVE_MIN_BUFFER_MS,
-            maxBufferMs = MULTI_VIEW_LIVE_MAX_BUFFER_MS
-        )
-    } else {
-        policy.copy(
-            label = "wall-vod",
-            minBufferMs = MULTI_VIEW_VOD_MIN_BUFFER_MS,
-            maxBufferMs = MULTI_VIEW_VOD_MAX_BUFFER_MS
+    ): PlaybackBufferPolicy {
+        val constrained = if (isLive) {
+            policy.copy(
+                label = "wall-live",
+                minBufferMs = MULTI_VIEW_LIVE_MIN_BUFFER_MS,
+                maxBufferMs = MULTI_VIEW_LIVE_MAX_BUFFER_MS
+            )
+        } else {
+            policy.copy(
+                label = "wall-vod",
+                minBufferMs = MULTI_VIEW_VOD_MIN_BUFFER_MS,
+                maxBufferMs = MULTI_VIEW_VOD_MAX_BUFFER_MS
+            )
+        }
+
+        // Media3 requires both startup thresholds to be no greater than
+        // minBufferMs. AUTO can promote UHD live playback to the large policy
+        // before multiview trims its read-ahead, so carry the thresholds only
+        // when they remain valid for the smaller wall buffer.
+        return constrained.copy(
+            playbackBufferMs = constrained.playbackBufferMs.coerceAtMost(constrained.minBufferMs),
+            rebufferMs = constrained.rebufferMs.coerceAtMost(constrained.minBufferMs)
         )
     }
 

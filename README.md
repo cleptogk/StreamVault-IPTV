@@ -13,6 +13,13 @@
 
 StreamVault is a TV-first IPTV player for Android TV built with Kotlin, Jetpack Compose, Room, Hilt, and Media3.
 
+> **Sports Wall fork:** this branch adds a separately signed, side-by-side
+> deployment for authenticated 2×2 control, Channels DVR placement, coordinated
+> pause/resume, and SMB-backed live-timeshift durability. See the [Sports Wall
+> API](docs/SPORTS_WALL_API.md), [operations runbook](docs/SPORTS_WALL_OPERATIONS.md),
+> and [build/rollback guide](docs/SPORTS_WALL_BUILD.md). It does not replace the
+> official StreamVault or TiviMate installations on the target Shield.
+
 It is designed for large playlists, remote-friendly browsing, fast provider switching, and a polished living-room playback experience. StreamVault supports `M3U` playlists, `Xtream Codes`, `Stalker Portal`, and `Jellyfin` providers, with dedicated flows for `Live TV`, `Movies`, and `Series`.
 
 Built for Android TV first, StreamVault focuses on the things generic IPTV apps usually get wrong: D-pad navigation, quick channel movement, large-library organization, and a player that still feels good to use from the couch. Phone and tablet installs are also supported, but the primary UX target is TV.

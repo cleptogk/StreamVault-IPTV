@@ -66,6 +66,27 @@ internal class SportsWallApiServer(
         if (path == "/v1/state" && session.method == Method.GET) {
             return success(controller.state().toJson())
         }
+        if (path == "/v1/diagnostics/timeshift" && session.method == Method.GET) {
+            return success(buildJsonObject {
+                put("capturedAtMs", System.currentTimeMillis())
+                put("panes", buildJsonArray {
+                    controller.timeshiftDiagnostics().forEach { diagnostics ->
+                        add(buildJsonObject {
+                            put("pane", diagnostics.pane)
+                            put("playbackState", diagnostics.playbackState)
+                            put("isPlaying", diagnostics.isPlaying)
+                            put("videoWidth", diagnostics.videoWidth)
+                            put("videoHeight", diagnostics.videoHeight)
+                            put("timeshiftStatus", diagnostics.timeshiftStatus)
+                            put("timeshiftBackend", diagnostics.timeshiftBackend)
+                            put("bufferedDurationMs", diagnostics.bufferedDurationMs)
+                            put("offsetFromLiveMs", diagnostics.offsetFromLiveMs)
+                            put("updatedAtMs", diagnostics.updatedAtMs)
+                        })
+                    }
+                })
+            })
+        }
         if (path == "/v1/channels/search" && session.method == Method.GET) {
             val query = session.parameters["q"]?.firstOrNull().orEmpty()
             val limit = session.parameters["limit"]?.firstOrNull()?.toIntOrNull()?.coerceIn(1, 50) ?: 20
