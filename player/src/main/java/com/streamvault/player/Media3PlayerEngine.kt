@@ -184,6 +184,7 @@ class Media3PlayerEngine @Inject constructor(
         private set
     private var isDisposed = false
     private var exoPlayer: ExoPlayer? = null
+    private var audioTrackEnabled: Boolean = true
     private var mediaSession: MediaSession? = null
     private var requestedAudioDecoderMode: DecoderMode = DecoderMode.AUTO
     private var requestedVideoDecoderMode: DecoderMode = DecoderMode.AUTO
@@ -618,6 +619,7 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     fun setAudioTrackEnabled(enabled: Boolean) {
+        audioTrackEnabled = enabled
         val player = exoPlayer ?: return
         player.trackSelectionParameters = player.trackSelectionParameters
             .buildUpon()
@@ -781,6 +783,10 @@ class Media3PlayerEngine @Inject constructor(
                 constrainResolutionForMultiView,
                 multiViewMaxVideoHeight
             )
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !audioTrackEnabled)
+                .build()
         }
     }
 
@@ -1156,6 +1162,10 @@ class Media3PlayerEngine @Inject constructor(
                 constrainResolutionForMultiView,
                 multiViewMaxVideoHeight
             )
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !audioTrackEnabled)
+                .build()
             if (activeVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY) {
                 player.trackSelectionParameters = player.trackSelectionParameters
                     .buildUpon()
@@ -1271,6 +1281,10 @@ class Media3PlayerEngine @Inject constructor(
             )
             .build()
             .apply {
+                trackSelectionParameters = trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !audioTrackEnabled)
+                    .build()
                 videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
                 playbackParameters = PlaybackParameters(_playbackSpeed.value)
                 setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->

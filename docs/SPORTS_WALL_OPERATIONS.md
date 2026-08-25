@@ -75,8 +75,10 @@ manual](https://www.samba.org/samba/docs/current/man-html/smb.conf.5.html).
   applies to every populated pane, including recordings and live streams.
 - Selecting **Fullscreen** opens the active pane; **Restore wall** returns to
   the 2×2 layout.
-- Only one pane decodes audio. The active audio pane shows the compact
-  headphones icon.
+- Only one pane decodes audio. Audio follows manual pane focus, fullscreen
+  always transfers audio to the fullscreen pane, and the active pane shows the
+  compact headphones icon. A remotely selected audio pane remains selected
+  only until the operator moves focus or opens another pane fullscreen.
 - Use `MAXIMUM` only as the explicit four-decoder override. Avoid UHD inputs in
   mixed four-pane walls unless the device has been separately validated.
 

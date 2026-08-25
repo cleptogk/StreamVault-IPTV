@@ -89,7 +89,11 @@ class SportsWallController @Inject constructor(
             SportsWallPaneState(pane = index + 1, channel = channel?.toSummary())
         },
         focusedPane = multiViewManager.focusedSlotIndex.value + 1,
-        audioPane = multiViewManager.pinnedAudioSlotIndex.value?.plus(1),
+        audioPane = (
+            multiViewManager.fullscreenSlotIndex.value
+                ?: multiViewManager.pinnedAudioSlotIndex.value
+                ?: multiViewManager.focusedSlotIndex.value
+            ).takeIf { multiViewManager.slots.value.getOrNull(it) != null }?.plus(1),
         performanceMode = preferencesRepository.multiViewPerformanceMode.first()
             ?.takeIf { it.isNotBlank() }
             ?: MultiViewPerformanceMode.AUTO.name,

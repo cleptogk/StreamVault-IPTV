@@ -33,7 +33,7 @@ publish it through a WAN or unauthenticated reverse proxy.
 | `PUT` | `/v1/layout` | Atomically assign four channel IDs/nulls and open multiview. |
 | `PUT` / `DELETE` | `/v1/panes/{1..4}` | Replace or clear one pane. |
 | `PUT` | `/v1/panes/{1..4}/recording` | Assign a validated Channels DVR recording to one pane. |
-| `PUT` | `/v1/audio` | Pin audio to a pane; send `null` to follow focus. |
+| `PUT` | `/v1/audio` | Select audio for a pane; send `null` to follow focus. Manual pane focus or fullscreen takes ownership afterward. |
 | `PUT` | `/v1/performance` | Set `AUTO`, `CONSERVATIVE`, `BALANCED`, or `MAXIMUM`. |
 | `POST` | `/v1/fullscreen` | Open one populated pane fullscreen. |
 | `POST` | `/v1/recordings/fullscreen` | Open a validated Channels DVR recording fullscreen. |

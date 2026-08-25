@@ -2,6 +2,20 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17.23-sports-wall]
+
+### Fixed
+
+- Restored focus-following audio when the operator moves between multiview
+  panes, clearing a stale remotely selected audio pin on manual navigation.
+- Made the fullscreen pane the authoritative audio owner so sound cannot remain
+  attached to a different grid pane.
+- Disabled every non-owner audio track before enabling the new owner, and start
+  new multiview engines with audio disabled, keeping playback to one active
+  audio decoder during focus and fullscreen handoffs.
+- Reported the effective audible pane in Sports Wall state instead of reporting
+  only an optional pinned-audio value.
+
 ## [1.0.17.22-sports-wall]
 
 ### Fixed

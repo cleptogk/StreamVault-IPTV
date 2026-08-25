@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.di.AuxiliaryPlayerEngine
@@ -81,6 +82,7 @@ class MultiViewViewModel @Inject constructor(
     private var playbackSessionActive: Boolean = false
     private var currentProviderId: Long? = null
     private var lastPerformanceMode: MultiViewPerformanceMode? = null
+    private var lastAppliedAudioOwner: Int? = null
 
     /** Flow of the current 4 slot channels from the manager */
     val slotsFlow = multiViewManager.slots
@@ -123,6 +125,7 @@ class MultiViewViewModel @Inject constructor(
         viewModelScope.launch {
             multiViewManager.fullscreenSlotIndex.collect { slotIndex ->
                 _uiState.value = _uiState.value.copy(fullscreenSlotIndex = slotIndex)
+                applyFocusAudio(_uiState.value.focusedSlotIndex)
             }
         }
         viewModelScope.launch {
@@ -332,6 +335,10 @@ class MultiViewViewModel @Inject constructor(
                                 it.maxLiveHttp403RetryAttempts = 3
                                 it.bypassAudioFocus = true
                                 it.enableMediaSession = false
+                                // Start silent. Audio ownership is granted only after this engine is
+                                // published into the coordinated four-pane owner map.
+                                it.setAudioTrackEnabled(false)
+                                it.setVolume(0f)
                             }
                         if (initVersion != slotInitVersion || slotGen != slotGenerations.getOrDefault(index, 0L)) {
                             return@launch
@@ -431,7 +438,7 @@ class MultiViewViewModel @Inject constructor(
     }
 
     fun setFocus(slotIndex: Int) {
-        multiViewManager.setFocusedSlot(slotIndex)
+        multiViewManager.selectFocusedSlot(slotIndex)
         if (_uiState.value.focusedSlotIndex != slotIndex) {
             _uiState.value = _uiState.value.copy(focusedSlotIndex = slotIndex)
             applyFocusAudio(slotIndex)
@@ -490,18 +497,32 @@ class MultiViewViewModel @Inject constructor(
     }
 
     private fun applyFocusAudio(focusedIndex: Int) {
-        val audibleIndex = pinnedAudioSlotIndex
-            ?.takeIf { playerEngines.containsKey(it) }
-            ?: focusedIndex
-        playerEngines[audibleIndex]?.let { engine ->
-            (engine as? com.streamvault.player.Media3PlayerEngine)?.setAudioTrackEnabled(true)
-            engine.setVolume(1f)
-        }
+        val audibleIndex = resolveMultiViewAudioOwner(
+            focusedSlotIndex = focusedIndex,
+            pinnedAudioSlotIndex = pinnedAudioSlotIndex,
+            fullscreenSlotIndex = multiViewManager.fullscreenSlotIndex.value,
+            activeSlotIndexes = playerEngines.keys
+        )
+        // Revoke every old owner before granting the new one. This guarantees that
+        // focus/fullscreen transitions never overlap two audio decoders.
         playerEngines.forEach { (index, engine) ->
             if (index != audibleIndex) {
                 engine.setVolume(0f)
                 (engine as? com.streamvault.player.Media3PlayerEngine)?.setAudioTrackEnabled(false)
             }
+        }
+        audibleIndex?.let { index ->
+            playerEngines[index]?.let { engine ->
+                (engine as? com.streamvault.player.Media3PlayerEngine)?.setAudioTrackEnabled(true)
+                engine.setVolume(1f)
+            }
+        }
+        if (lastAppliedAudioOwner != audibleIndex) {
+            Log.i(
+                "MultiViewAudio",
+                "owner pane=${audibleIndex?.plus(1) ?: "none"} fullscreen=${multiViewManager.fullscreenSlotIndex.value?.plus(1) ?: "none"} activeEngines=${playerEngines.size}"
+            )
+            lastAppliedAudioOwner = audibleIndex
         }
     }
 

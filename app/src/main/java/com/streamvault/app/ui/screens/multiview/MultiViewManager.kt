@@ -103,6 +103,13 @@ class MultiViewManager @Inject constructor() {
         if (slotIndex in 0 until MAX_SLOTS) _focusedSlotIndex.value = slotIndex
     }
 
+    /** Manual pane navigation transfers audio ownership back to focus-following mode. */
+    fun selectFocusedSlot(slotIndex: Int) {
+        if (slotIndex !in 0 until MAX_SLOTS) return
+        _pinnedAudioSlotIndex.value = null
+        _focusedSlotIndex.value = slotIndex
+    }
+
     fun setPinnedAudioSlot(slotIndex: Int?) {
         if (slotIndex == null || slotIndex in 0 until MAX_SLOTS) {
             _pinnedAudioSlotIndex.value = slotIndex
@@ -112,7 +119,10 @@ class MultiViewManager @Inject constructor() {
     fun setFullscreenSlot(slotIndex: Int?) {
         if (slotIndex == null || (slotIndex in 0 until MAX_SLOTS && _slots.value[slotIndex] != null)) {
             _fullscreenSlotIndex.value = slotIndex
-            slotIndex?.let(::setFocusedSlot)
+            slotIndex?.let {
+                _pinnedAudioSlotIndex.value = null
+                _focusedSlotIndex.value = it
+            }
         }
     }
 
