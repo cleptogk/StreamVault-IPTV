@@ -2,6 +2,19 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17.21-sports-wall]
+
+### Fixed
+
+- Prevented live-timeshift session cleanup from deleting a snapshot directory
+  while its playlist and segments are still being written.
+- Made session shutdown wait for in-flight snapshot creation and reject new
+  snapshots after shutdown begins.
+- Converted residual timeshift snapshot I/O failures into safe playback
+  fallback behavior instead of allowing an uncaught main-thread app crash.
+- Fixed the observed live delayed-wall to fullscreen Channels DVR transition
+  crash caused by a missing `resume-N/index.m3u8` file.
+
 ## [1.0.17.20-sports-wall]
 
 ### Added

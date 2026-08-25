@@ -77,6 +77,32 @@ internal suspend fun stopOwnedTimeshiftCapture(
     deleteSessionFiles()
 }
 
+/**
+ * Prevents a session directory from being deleted while a snapshot is still being written.
+ *
+ * Snapshot creation intentionally runs outside [DefaultLiveTimeshiftManager]'s outer mutex so
+ * slow segment copies do not block unrelated manager state. Session shutdown therefore needs a
+ * narrower ownership fence: once close begins, no new snapshot may start, and deletion waits for
+ * the snapshot already holding the fence to finish.
+ */
+internal class TimeshiftSessionLifecycleFence {
+    private val mutex = Mutex()
+    private var closing = false
+
+    suspend fun <T> withOpenSession(block: suspend () -> T): T? = mutex.withLock {
+        if (closing) return@withLock null
+        block()
+    }
+
+    suspend fun close(block: suspend () -> Unit) {
+        mutex.withLock {
+            if (closing) return@withLock
+            closing = true
+            block()
+        }
+    }
+}
+
 internal fun buildDashSnapshotPlaylist(
     targetDurationSeconds: Int,
     segments: List<DashSnapshotPlaylistSegment>
@@ -310,7 +336,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 s.activeSnapshotDir?.let { retiredSnapshotDirs.addLast(it) }
                 s
             } ?: return@withContext null
-            session.createSnapshot()
+            session.withOpenSession { session.createSnapshot() }
         }
     }
 
@@ -322,31 +348,33 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 current
             } ?: return@withContext null
 
-            if (session is HlsSession) {
-                session.createPauseBoundarySnapshot(pausedAtMs)?.let { return@withContext it }
-            }
+            session.withOpenSession {
+                if (session is HlsSession) {
+                    session.createPauseBoundarySnapshot(pausedAtMs)?.let { return@withOpenSession it }
+                }
 
-            val elapsedPauseMs = (System.currentTimeMillis() - pausedAtMs).coerceAtLeast(0L)
-            val local = session.createSnapshot()
-            if (local != null && local.durationMs >= elapsedPauseMs) {
-                return@withContext local.copy(
-                    resumePositionMs = (local.durationMs - elapsedPauseMs).coerceAtLeast(0L)
-                )
-            }
+                val elapsedPauseMs = (System.currentTimeMillis() - pausedAtMs).coerceAtLeast(0L)
+                val local = session.createSnapshot()
+                if (local != null && local.durationMs >= elapsedPauseMs) {
+                    return@withOpenSession local.copy(
+                        resumePositionMs = (local.durationMs - elapsedPauseMs).coerceAtLeast(0L)
+                    )
+                }
 
-            val restoredDir = File(session.sessionDir, "archive-${System.currentTimeMillis()}").apply { mkdirs() }
-            val archived = liveTimeshiftArchive.restoreSince(session.sessionId, pausedAtMs, restoredDir)
-            if (archived != null) {
-                session.activeSnapshotDir = restoredDir
-                return@withContext LiveTimeshiftSnapshot(
-                    url = archived.file.toURI().toString(),
-                    durationMs = archived.durationMs,
-                    backend = LiveTimeshiftBackend.DISK,
-                    resumePositionMs = 0L
-                )
+                val restoredDir = File(session.sessionDir, "archive-${System.currentTimeMillis()}").apply { mkdirs() }
+                val archived = liveTimeshiftArchive.restoreSince(session.sessionId, pausedAtMs, restoredDir)
+                if (archived != null) {
+                    session.activeSnapshotDir = restoredDir
+                    return@withOpenSession LiveTimeshiftSnapshot(
+                        url = archived.file.toURI().toString(),
+                        durationMs = archived.durationMs,
+                        backend = LiveTimeshiftBackend.DISK,
+                        resumePositionMs = 0L
+                    )
+                }
+                restoredDir.deleteRecursively()
+                local?.copy(resumePositionMs = 0L)
             }
-            restoredDir.deleteRecursively()
-            local?.copy(resumePositionMs = 0L)
         }
 
     override suspend fun createContinuationSnapshot(afterToken: String): LiveTimeshiftSnapshot? =
@@ -356,7 +384,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 current.activeSnapshotDir?.let { retiredSnapshotDirs.addLast(it) }
                 current
             } ?: return@withContext null
-            session.createContinuationSnapshot(afterToken)
+            session.withOpenSession { session.createContinuationSnapshot(afterToken) }
         }
 
     override suspend fun startIndependentCapture() {
@@ -485,15 +513,21 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         protected val sequence = AtomicLong(0L)
         protected val stateStartMs = System.currentTimeMillis()
         private val activeCall = AtomicReference<okhttp3.Call?>()
+        private val lifecycleFence = TimeshiftSessionLifecycleFence()
 
         abstract suspend fun capture()
         abstract suspend fun createSnapshot(): LiveTimeshiftSnapshot?
 
+        suspend fun <T> withOpenSession(block: suspend () -> T): T? =
+            lifecycleFence.withOpenSession(block)
+
         open suspend fun stop() {
-            stopOwnedTimeshiftCapture(activeCall, job) {
-                liveTimeshiftArchive.endSession(sessionId)
-                diskManager.unregisterActiveSession(sessionDir)
-                sessionDir.deleteRecursively()
+            lifecycleFence.close {
+                stopOwnedTimeshiftCapture(activeCall, job) {
+                    liveTimeshiftArchive.endSession(sessionId)
+                    diskManager.unregisterActiveSession(sessionDir)
+                    sessionDir.deleteRecursively()
+                }
             }
         }
 

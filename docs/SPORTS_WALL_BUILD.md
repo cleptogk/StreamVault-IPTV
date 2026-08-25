@@ -6,7 +6,7 @@ Sports Wall control project.
 ## Stable Android identity
 
 - Application ID: `com.cleptogk.streamvault.sportswall`
-- Release candidate: `1.0.17.20` (`versionCode` `1000037`)
+- Release candidate: `1.0.17.21` (`versionCode` `1000038`)
 - Update source: `cleptogk/StreamVault-IPTV` GitHub releases
 
 Android will accept an in-place update only when the application ID and signing

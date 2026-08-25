@@ -100,6 +100,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -1671,7 +1672,9 @@ class Media3PlayerEngine @Inject constructor(
     ) {
         val liveInfo = activeLiveTimeshiftStreamInfo ?: return
         scope.launch {
-            val snapshot = liveTimeshiftManager.createSnapshot() ?: run {
+            val snapshot = createTimeshiftSnapshotSafely("snapshot") {
+                liveTimeshiftManager.createSnapshot()
+            } ?: run {
                 syncTimeshiftState(messageOverride = "Local live rewind is still buffering.")
                 return@launch
             }
@@ -1693,7 +1696,9 @@ class Media3PlayerEngine @Inject constructor(
         val liveInfo = activeLiveTimeshiftStreamInfo ?: return
         scope.launch {
             syncTimeshiftState(messageOverride = "Restoring paused live buffer…")
-            val snapshot = liveTimeshiftManager.createResumeSnapshot(pausedAtMs) ?: run {
+            val snapshot = createTimeshiftSnapshotSafely("resume") {
+                liveTimeshiftManager.createResumeSnapshot(pausedAtMs)
+            } ?: run {
                 syncTimeshiftState(messageOverride = "The paused live buffer is no longer available.")
                 return@launch
             }
@@ -1715,7 +1720,9 @@ class Media3PlayerEngine @Inject constructor(
         val liveInfo = activeLiveTimeshiftStreamInfo ?: return
         timeshiftContinuationPending = true
         scope.launch {
-            val snapshot = liveTimeshiftManager.createContinuationSnapshot(afterToken)
+            val snapshot = createTimeshiftSnapshotSafely("continuation") {
+                liveTimeshiftManager.createContinuationSnapshot(afterToken)
+            }
             if (activeLiveTimeshiftStreamInfo !== liveInfo || !isPlayingTimeshiftSnapshot) {
                 timeshiftContinuationPending = false
                 return@launch
@@ -1734,6 +1741,18 @@ class Media3PlayerEngine @Inject constructor(
             liveTimeshiftManager.releaseRetiredSnapshots()
             syncTimeshiftState(messageOverride = "Continuing delayed live playback…")
         }
+    }
+
+    private suspend fun createTimeshiftSnapshotSafely(
+        operation: String,
+        create: suspend () -> com.streamvault.player.timeshift.LiveTimeshiftSnapshot?
+    ): com.streamvault.player.timeshift.LiveTimeshiftSnapshot? = try {
+        create()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Log.w(TAG, "timeshift-$operation unavailable cause=${failure.javaClass.simpleName}")
+        null
     }
 
     private fun inferSnapshotStreamType(url: String) = when {
