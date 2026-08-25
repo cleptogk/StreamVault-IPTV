@@ -313,6 +313,7 @@ class MultiViewViewModel @Inject constructor(
                                 it.constrainVodBufferForMultiView = true
                                 it.stabilizeLiveBufferForMultiView = true
                                 it.maxLiveStallReconnectAttempts = 3
+                                it.maxLiveHttp403RetryAttempts = 3
                                 it.bypassAudioFocus = true
                                 it.enableMediaSession = false
                             }

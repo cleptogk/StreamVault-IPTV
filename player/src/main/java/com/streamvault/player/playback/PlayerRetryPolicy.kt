@@ -29,6 +29,7 @@ data class PlaybackRetryContext(
 class PlayerRetryPolicy(
     private val streamContext: PlaybackRetryContext,
     private val fastRetryOnTransientFailures: () -> Boolean = { false },
+    private val maxLiveHttp403RetryAttempts: () -> Int = { 0 },
     private val playbackStarted: () -> Boolean
 ) : LoadErrorHandlingPolicy {
     fun maxAttempts(error: Throwable, playbackStarted: Boolean): Int {
@@ -96,7 +97,11 @@ class PlayerRetryPolicy(
                 } else {
                     "malformed-source"
                 }
-            PlaybackErrorCategory.HTTP_AUTH -> "terminal-auth"
+            PlaybackErrorCategory.HTTP_AUTH -> if (isRetryableLiveHttp403(error)) {
+                "transient-live-forbidden"
+            } else {
+                "terminal-auth"
+            }
             PlaybackErrorCategory.SSL -> "terminal-tls"
             PlaybackErrorCategory.CLEAR_TEXT_BLOCKED -> "terminal-cleartext"
             PlaybackErrorCategory.DRM -> "terminal-drm"
@@ -147,8 +152,13 @@ class PlayerRetryPolicy(
             PlaybackErrorCategory.DRM,
             PlaybackErrorCategory.DECODER,
             PlaybackErrorCategory.CLEAR_TEXT_BLOCKED,
-            PlaybackErrorCategory.SSL,
-            PlaybackErrorCategory.HTTP_AUTH -> 0
+            PlaybackErrorCategory.SSL -> 0
+
+            PlaybackErrorCategory.HTTP_AUTH -> if (isRetryableLiveHttp403(error)) {
+                maxLiveHttp403RetryAttempts().coerceAtLeast(0)
+            } else {
+                0
+            }
 
             PlaybackErrorCategory.FORMAT_UNSUPPORTED -> if (playbackStarted) 1 else 0
 
@@ -192,5 +202,20 @@ class PlayerRetryPolicy(
 
     private inline fun <reified T : Throwable> Throwable.hasCause(): Boolean {
         return generateSequence(this) { it.cause }.any { it is T }
+    }
+
+    private fun isRetryableLiveHttp403(error: Throwable): Boolean =
+        streamContext.isLive &&
+            maxLiveHttp403RetryAttempts() > 0 &&
+            error.httpResponseCode() == 403
+
+    private fun Throwable.httpResponseCode(): Int? {
+        val chain = generateSequence(this) { it.cause }.toList()
+        return chain.filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+            .firstOrNull()
+            ?.responseCode
+            ?: chain.firstNotNullOfOrNull { cause ->
+                Regex("""\b(401|403|456)\b""").find(cause.message.orEmpty())?.value?.toIntOrNull()
+            }
     }
 }

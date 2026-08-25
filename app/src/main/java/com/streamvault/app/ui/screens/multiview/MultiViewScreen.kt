@@ -1,6 +1,8 @@
 ﻿package com.streamvault.app.ui.screens.multiview
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.view.View
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -30,7 +32,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -76,6 +81,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import com.streamvault.app.R
 import com.streamvault.app.ui.components.PlayerRenderView
 import com.streamvault.app.ui.components.dialogs.PinDialog
@@ -153,10 +159,15 @@ fun MultiViewScreen(
     }
 
     // Prevent screen from sleeping while watching multiview
-    val multiViewWindow = (LocalContext.current as? Activity)?.window
-    DisposableEffect(Unit) {
+    val multiViewWindow = LocalContext.current.findActivity()?.window
+    val multiViewView = LocalView.current
+    DisposableEffect(multiViewWindow, multiViewView) {
         multiViewWindow?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose { multiViewWindow?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        multiViewView.keepScreenOn = true
+        onDispose {
+            multiViewView.keepScreenOn = false
+            multiViewWindow?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     DisposableEffect(lifecycleOwner, viewModel) {
@@ -246,6 +257,7 @@ fun MultiViewScreen(
                 CenteredCompactLayout(
                     slots = visibleSlots,
                     focusedSlotIndex = uiState.focusedSlotIndex,
+                    hasPinnedAudio = uiState.pinnedAudioSlotIndex != null,
                     showSelectionBorder = uiState.showSelectionBorder,
                     showControls = showControls,
                     firstSlotFocusRequester = firstSlotFocusRequester,
@@ -257,6 +269,7 @@ fun MultiViewScreen(
                 StandardMultiViewGrid(
                     slots = uiState.slots,
                     focusedSlotIndex = uiState.focusedSlotIndex,
+                    hasPinnedAudio = uiState.pinnedAudioSlotIndex != null,
                     showSelectionBorder = uiState.showSelectionBorder,
                     showControls = showControls,
                     firstSlotFocusRequester = firstSlotFocusRequester,
@@ -314,6 +327,7 @@ fun MultiViewScreen(
 private fun StandardMultiViewGrid(
     slots: List<MultiViewSlot>,
     focusedSlotIndex: Int,
+    hasPinnedAudio: Boolean,
     showSelectionBorder: Boolean,
     showControls: Boolean,
     firstSlotFocusRequester: FocusRequester,
@@ -327,6 +341,7 @@ private fun StandardMultiViewGrid(
                 slot = slots.getOrNull(0),
                 slotIndex = 0,
                 focusedSlotIndex = focusedSlotIndex,
+                hasPinnedAudio = hasPinnedAudio,
                 showSelectionBorder = showSelectionBorder,
                 showControls = showControls,
                 onClick = onSlotClick,
@@ -341,6 +356,7 @@ private fun StandardMultiViewGrid(
                 slot = slots.getOrNull(1),
                 slotIndex = 1,
                 focusedSlotIndex = focusedSlotIndex,
+                hasPinnedAudio = hasPinnedAudio,
                 showSelectionBorder = showSelectionBorder,
                 showControls = showControls,
                 onClick = onSlotClick,
@@ -357,6 +373,7 @@ private fun StandardMultiViewGrid(
                 slot = slots.getOrNull(2),
                 slotIndex = 2,
                 focusedSlotIndex = focusedSlotIndex,
+                hasPinnedAudio = hasPinnedAudio,
                 showSelectionBorder = showSelectionBorder,
                 showControls = showControls,
                 onClick = onSlotClick,
@@ -371,6 +388,7 @@ private fun StandardMultiViewGrid(
                 slot = slots.getOrNull(3),
                 slotIndex = 3,
                 focusedSlotIndex = focusedSlotIndex,
+                hasPinnedAudio = hasPinnedAudio,
                 showSelectionBorder = showSelectionBorder,
                 showControls = showControls,
                 onClick = onSlotClick,
@@ -389,6 +407,7 @@ private fun StandardMultiViewGrid(
 private fun CenteredCompactLayout(
     slots: List<MultiViewSlot>,
     focusedSlotIndex: Int,
+    hasPinnedAudio: Boolean,
     showSelectionBorder: Boolean,
     showControls: Boolean,
     firstSlotFocusRequester: FocusRequester,
@@ -411,6 +430,7 @@ private fun CenteredCompactLayout(
                     slot = slots.first(),
                     slotIndex = slots.first().index,
                     focusedSlotIndex = focusedSlotIndex,
+                    hasPinnedAudio = hasPinnedAudio,
                     showSelectionBorder = showSelectionBorder,
                     showControls = showControls,
                     onClick = onSlotClick,
@@ -434,6 +454,7 @@ private fun CenteredCompactLayout(
                         slot = slot,
                         slotIndex = slot.index,
                         focusedSlotIndex = focusedSlotIndex,
+                        hasPinnedAudio = hasPinnedAudio,
                         showSelectionBorder = showSelectionBorder,
                         showControls = showControls,
                         onClick = onSlotClick,
@@ -455,6 +476,7 @@ private fun GridPlayerCell(
     slot: MultiViewSlot?,
     slotIndex: Int,
     focusedSlotIndex: Int,
+    hasPinnedAudio: Boolean,
     showSelectionBorder: Boolean,
     showControls: Boolean,
     onClick: () -> Unit,
@@ -466,6 +488,7 @@ private fun GridPlayerCell(
     PlayerCell(
         slot = slot,
         isFocused = focusedSlotIndex == slotIndex,
+        isAudible = slot?.isAudioPinned == true || (!hasPinnedAudio && focusedSlotIndex == slotIndex),
         showSelectionBorder = showSelectionBorder,
         onClick = onClick,
         modifier = modifier
@@ -483,6 +506,7 @@ private fun GridPlayerCell(
 private fun PlayerCell(
     slot: MultiViewSlot?,
     isFocused: Boolean,
+    isAudible: Boolean,
     showSelectionBorder: Boolean,
     onClick: () -> Unit,
     modifier: Modifier,
@@ -608,23 +632,23 @@ private fun PlayerCell(
                         )
                     }
 
-                    if (isFocused && !slot.isEmpty) {
+                    if (isAudible && !slot.isEmpty) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(12.dp)
-                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .padding(6.dp)
+                                .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(50))
+                                .padding(3.dp)
                         ) {
-                            Text(
-                                text = if (slot.isAudioPinned) {
+                            Icon(
+                                imageVector = Icons.Rounded.Headphones,
+                                contentDescription = if (slot.isAudioPinned) {
                                     stringResource(R.string.multiview_audio_pinned_badge)
                                 } else {
                                     stringResource(R.string.multiview_audio_badge)
                                 },
-                                color = Primary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                tint = Primary,
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
@@ -648,6 +672,12 @@ private fun PlayerCell(
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable

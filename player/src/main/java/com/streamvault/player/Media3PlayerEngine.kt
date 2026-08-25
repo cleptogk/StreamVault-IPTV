@@ -145,6 +145,8 @@ class Media3PlayerEngine @Inject constructor(
     var stabilizeLiveBufferForMultiView: Boolean = false
     /** Bounded same-slot reconnects; the old media source is stopped before each retry. */
     var maxLiveStallReconnectAttempts: Int = 1
+    /** Some providers transiently return 403 while rotating or releasing a live connection. */
+    var maxLiveHttp403RetryAttempts: Int = 0
     var bypassAudioFocus: Boolean = false
         set(value) {
             field = value
@@ -2326,6 +2328,7 @@ class Media3PlayerEngine @Inject constructor(
             retryPolicy = PlayerRetryPolicy(
                 streamContext = retryContext,
                 fastRetryOnTransientFailures = { fastRetryOnTransientFailures },
+                maxLiveHttp403RetryAttempts = { maxLiveHttp403RetryAttempts },
                 playbackStarted = { playbackStarted() }
             )
         )
@@ -2524,6 +2527,10 @@ class Media3PlayerEngine @Inject constructor(
                     currentResolvedStreamType != ResolvedStreamType.MPEG_TS_LIVE
                 ) {
                     exoPlayer?.seekToDefaultPosition()
+                }
+                if (category == PlaybackErrorCategory.HTTP_AUTH && retryContext.isLive) {
+                    // Release the rejected provider request before opening the bounded replacement.
+                    exoPlayer?.stop()
                 }
                 prepareInternal(
                     streamInfo,

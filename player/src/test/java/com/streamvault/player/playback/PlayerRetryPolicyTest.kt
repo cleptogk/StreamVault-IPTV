@@ -29,6 +29,11 @@ class PlayerRetryPolicyTest {
         playbackStarted = { true },
         fastRetryOnTransientFailures = { true }
     )
+    private val wallPolicy = PlayerRetryPolicy(
+        streamContext = liveContext,
+        maxLiveHttp403RetryAttempts = { 3 },
+        playbackStarted = { true }
+    )
 
     @Test
     fun `live server errors retry 10 times with bounded backoff`() {
@@ -49,6 +54,25 @@ class PlayerRetryPolicyTest {
     fun `403 never retries`() {
         assertThat(policy.shouldRetry(IOException("HTTP 403"), liveContext, playbackStarted = false, attempt = 1))
             .isFalse()
+    }
+
+    @Test
+    fun `sports wall retries transient live 403 three times`() {
+        val error = IOException("HTTP 403")
+
+        assertThat(wallPolicy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 1)).isTrue()
+        assertThat(wallPolicy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 3)).isTrue()
+        assertThat(wallPolicy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 4)).isFalse()
+        assertThat(wallPolicy.maxAttempts(error, playbackStarted = true)).isEqualTo(3)
+        assertThat(wallPolicy.retryReason(error)).isEqualTo("transient-live-forbidden")
+    }
+
+    @Test
+    fun `sports wall keeps other auth failures terminal`() {
+        val error = IOException("HTTP 401")
+
+        assertThat(wallPolicy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 1)).isFalse()
+        assertThat(wallPolicy.retryReason(error)).isEqualTo("terminal-auth")
     }
 
     @Test
