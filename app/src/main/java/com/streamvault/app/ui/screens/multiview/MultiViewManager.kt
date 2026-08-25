@@ -25,6 +25,12 @@ class MultiViewManager @Inject constructor() {
     private val _pinnedAudioSlotIndex = MutableStateFlow<Int?>(null)
     val pinnedAudioSlotIndex: StateFlow<Int?> = _pinnedAudioSlotIndex.asStateFlow()
 
+    private val _fullscreenSlotIndex = MutableStateFlow<Int?>(null)
+    val fullscreenSlotIndex: StateFlow<Int?> = _fullscreenSlotIndex.asStateFlow()
+
+    private val _pauseAllRequested = MutableStateFlow(false)
+    val pauseAllRequested: StateFlow<Boolean> = _pauseAllRequested.asStateFlow()
+
     val hasAnyChannel: Boolean get() = _slots.value.any { it != null }
 
     /** Place a channel in a specific slot index (0–3). Replaces whatever was there. */
@@ -82,6 +88,17 @@ class MultiViewManager @Inject constructor() {
         if (slotIndex == null || slotIndex in 0 until MAX_SLOTS) {
             _pinnedAudioSlotIndex.value = slotIndex
         }
+    }
+
+    fun setFullscreenSlot(slotIndex: Int?) {
+        if (slotIndex == null || (slotIndex in 0 until MAX_SLOTS && _slots.value[slotIndex] != null)) {
+            _fullscreenSlotIndex.value = slotIndex
+            slotIndex?.let(::setFocusedSlot)
+        }
+    }
+
+    fun setPauseAllRequested(paused: Boolean) {
+        _pauseAllRequested.value = paused
     }
 
     /** Returns true if the given channel is in any slot. */

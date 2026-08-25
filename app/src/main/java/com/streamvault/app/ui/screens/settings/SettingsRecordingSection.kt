@@ -24,6 +24,9 @@ internal fun LazyListScope.settingsRecordingSection(
         )
     }
     item {
+        SmbStorageSettingsCard(uiState = uiState, viewModel = viewModel)
+    }
+    item {
         RecordingInfoCard(
             treeLabel = uiState.recordingStorageState.displayName,
             outputDirectory = uiState.recordingStorageState.outputDirectory,

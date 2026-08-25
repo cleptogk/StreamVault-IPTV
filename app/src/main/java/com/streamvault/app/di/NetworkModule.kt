@@ -117,13 +117,15 @@ object NetworkModule {
         okHttpClient: OkHttpClient,
         playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository,
         audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
-        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
+        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore,
+        liveTimeshiftArchive: com.streamvault.player.timeshift.LiveTimeshiftArchive
     ): PlayerEngine = Media3PlayerEngine(
         context,
         okHttpClient,
         playbackCompatibilityRepository,
         audioCompatibilityMemoryStore,
-        playbackSupportSnapshotStore
+        playbackSupportSnapshotStore,
+        liveTimeshiftArchive
     )
 
     /**
@@ -137,13 +139,15 @@ object NetworkModule {
         okHttpClient: OkHttpClient,
         playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository,
         audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
-        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
+        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore,
+        liveTimeshiftArchive: com.streamvault.player.timeshift.LiveTimeshiftArchive
     ): PlayerEngine = Media3PlayerEngine(
         context,
         okHttpClient,
         playbackCompatibilityRepository,
         audioCompatibilityMemoryStore,
-        playbackSupportSnapshotStore
+        playbackSupportSnapshotStore,
+        liveTimeshiftArchive
     ).apply {
         enableMediaSession = false
         bypassAudioFocus = true

@@ -34,10 +34,13 @@ import com.streamvault.data.manager.recording.deleteOutputTarget
 import com.streamvault.data.manager.recording.headersFromJson
 import com.streamvault.data.manager.recording.headersToJson
 import com.streamvault.data.manager.recording.inferFailureCategory
+import com.streamvault.data.manager.recording.existingSmbOutputTarget
 import com.streamvault.data.manager.recording.resolveStorageDetails
 import com.streamvault.data.manager.recording.sanitizeRecordingFileName
 import com.streamvault.data.manager.recording.toEntity
 import com.streamvault.data.manager.recording.toDomain
+import com.streamvault.data.storage.SmbStorageClient
+import com.streamvault.data.storage.SmbStorageProfileStore
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.RecordingFailureCategory
 import com.streamvault.domain.model.RecordingItem
@@ -123,6 +126,8 @@ class RecordingManagerImpl @Inject constructor(
     private val alarmScheduler: RecordingAlarmScheduler,
     private val preferencesRepository: PreferencesRepository,
     private val recordingServiceLauncher: RecordingServiceLauncher,
+    private val smbStorageProfileStore: SmbStorageProfileStore,
+    private val smbStorageClient: SmbStorageClient,
     private val providerSnapshotDao: ProviderSnapshotDao? = null
 ) : RecordingManager {
 
@@ -186,7 +191,9 @@ class RecordingManagerImpl @Inject constructor(
                     programTitle = request.programTitle,
                     startMs = request.scheduledStartMs,
                     pattern = storage.fileNamePattern
-                )
+                ),
+                smbProfileStore = smbStorageProfileStore,
+                smbClient = smbStorageClient
             )
             val run = try {
                 persistManualRun(request, source, outputTarget)
@@ -194,7 +201,7 @@ class RecordingManagerImpl @Inject constructor(
                 throw cancelled
             } catch (error: Throwable) {
                 val (outputUri, outputDisplayPath) = outputTarget.asPersistenceValues()
-                deleteOutputTarget(context, outputUri, outputDisplayPath)
+                deleteOutputTarget(context, outputUri, outputDisplayPath, smbStorageProfileStore, smbStorageClient)
                 throw error
             }
 
@@ -406,7 +413,7 @@ class RecordingManagerImpl @Inject constructor(
         if (run.status == RecordingStatus.SCHEDULED || run.status == RecordingStatus.RECORDING) {
             return@withContext Result.error("Only finished recordings can be deleted.")
         }
-        deleteOutputTarget(context, run.outputUri, run.outputDisplayPath)
+        deleteOutputTarget(context, run.outputUri, run.outputDisplayPath, smbStorageProfileStore, smbStorageClient)
         recordingRunDao.delete(recordingId)
         Result.success(Unit)
     }
@@ -499,7 +506,7 @@ class RecordingManagerImpl @Inject constructor(
         runSuspendCatching {
             val existing = recordingStorageDao.get()
             val (outputDirectory, availableBytes, isWritable) =
-                resolveStorageDetails(context, config.treeUri, config.localDirectory)
+                resolveStorageDetails(context, config.treeUri, config.localDirectory, smbStorageProfileStore)
             val entity = config.toEntity(existing, outputDirectory, availableBytes, isWritable)
             recordingStorageDao.upsert(entity)
             reconcileRecordingState()
@@ -659,7 +666,9 @@ class RecordingManagerImpl @Inject constructor(
                         createOutputTarget(
                             context = context,
                             storage = storage,
-                            fileName = sanitizeRecordingFileName(run.channelName, run.programTitle, run.scheduledStartMs, storage.fileNamePattern)
+                            fileName = sanitizeRecordingFileName(run.channelName, run.programTitle, run.scheduledStartMs, storage.fileNamePattern),
+                            smbProfileStore = smbStorageProfileStore,
+                            smbClient = smbStorageClient
                         )
                     }
                     val (outputUri, outputDisplayPath) = outputTarget.asPersistenceValues()
@@ -824,7 +833,7 @@ class RecordingManagerImpl @Inject constructor(
             // passing it back in, a null treeUri would reset the destination to internal default.
             val localDirectory = existing.outputDirectory?.takeIf { existing.treeUri.isNullOrBlank() }
             val (outputDirectory, availableBytes, isWritable) =
-                resolveStorageDetails(context, existing.treeUri, localDirectory)
+                resolveStorageDetails(context, existing.treeUri, localDirectory, smbStorageProfileStore)
             val refreshed = existing.copy(
                 outputDirectory = outputDirectory,
                 availableBytes = availableBytes,
@@ -849,7 +858,7 @@ class RecordingManagerImpl @Inject constructor(
         val thresholdMs = System.currentTimeMillis() - retentionDays.toLong() * 86_400_000L
         val expired = recordingRunDao.getExpiredRuns(thresholdMs)
         expired.forEach { run ->
-            deleteOutputTarget(context, run.outputUri, run.outputDisplayPath)
+            deleteOutputTarget(context, run.outputUri, run.outputDisplayPath, smbStorageProfileStore, smbStorageClient)
             recordingRunDao.delete(run.id)
         }
         if (expired.isNotEmpty()) {
@@ -907,7 +916,7 @@ class RecordingManagerImpl @Inject constructor(
     private suspend fun markRunFailed(recordingId: String, reason: String, category: RecordingFailureCategory) {
         val run = recordingRunDao.getById(recordingId) ?: return
         if (run.bytesWritten == 0L) {
-            deleteOutputTarget(context, run.outputUri, run.outputDisplayPath)
+            deleteOutputTarget(context, run.outputUri, run.outputDisplayPath, smbStorageProfileStore, smbStorageClient)
         }
         val now = System.currentTimeMillis()
         recordingRunDao.update(
@@ -1268,6 +1277,13 @@ class RecordingManagerImpl @Inject constructor(
 
     private fun existingOutputTarget(run: RecordingRunEntity): RecordingOutputTarget =
         when {
+            !run.outputUri.isNullOrBlank() && run.outputUri.startsWith("smb-file://") ->
+                existingSmbOutputTarget(
+                    run.outputUri,
+                    run.outputDisplayPath,
+                    smbStorageProfileStore,
+                    smbStorageClient
+                ) ?: throw IllegalStateException("SMB recording output target is unavailable.")
             !run.outputUri.isNullOrBlank() -> RecordingOutputTarget.DocumentTarget(
                 uri = android.net.Uri.parse(run.outputUri),
                 displayPath = run.outputDisplayPath

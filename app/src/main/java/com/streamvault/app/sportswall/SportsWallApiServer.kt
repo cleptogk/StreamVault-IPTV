@@ -145,6 +145,12 @@ internal class SportsWallApiServer(
             controller.openFullscreen(session.readJsonBody().requiredInt("pane"))
             return success(buildJsonObject { put("status", "fullscreen_requested") })
         }
+        if (path == "/v1/playback/pause" && session.method == Method.POST) {
+            return success(controller.pauseAll().toJson())
+        }
+        if (path == "/v1/playback/resume" && session.method == Method.POST) {
+            return success(controller.resumeAll().toJson())
+        }
         if (path == "/v1/recordings/fullscreen" && session.method == Method.POST) {
             controller.openRecordingFullscreen(session.readJsonBody().requiredRecording())
             return success(buildJsonObject { put("status", "fullscreen_requested") })
@@ -250,6 +256,8 @@ private fun SportsWallState.toJson(): JsonObject = buildJsonObject {
     put("focusedPane", focusedPane)
     if (audioPane == null) put("audioPane", JsonNull) else put("audioPane", audioPane)
     put("performanceMode", performanceMode)
+    put("paused", paused)
+    if (fullscreenPane == null) put("fullscreenPane", JsonNull) else put("fullscreenPane", fullscreenPane)
     put("panes", buildJsonArray {
         panes.forEach { pane ->
             add(buildJsonObject {

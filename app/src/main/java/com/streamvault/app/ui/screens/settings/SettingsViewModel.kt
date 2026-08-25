@@ -16,6 +16,11 @@ import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.app.sportswall.ChannelsDvrAddressPolicy
+import com.streamvault.data.storage.SmbStorageClient
+import com.streamvault.data.storage.SmbStorageProfile
+import com.streamvault.data.storage.SmbStorageProfileStore
+import com.streamvault.data.storage.SmbStorageTestResult
+import com.streamvault.data.manager.recording.smbRecordingStorageUri
 import com.streamvault.app.update.GitHubReleaseChecker
 import com.streamvault.app.update.isRemoteVersionNewer
 import com.streamvault.data.local.dao.ProgramDao
@@ -128,7 +133,9 @@ class SettingsViewModel @Inject constructor(
     private val gitHubReleaseChecker: GitHubReleaseChecker,
     private val appUpdateInstaller: AppUpdateInstaller,
     private val getCustomCategories: GetCustomCategories,
-    private val audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore
+    private val audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
+    private val smbStorageProfileStore: SmbStorageProfileStore,
+    private val smbStorageClient: SmbStorageClient
 ) : ViewModel() {
     private val appContext = application
     private val exportBackup = ExportBackup(backupManager)
@@ -208,6 +215,11 @@ class SettingsViewModel @Inject constructor(
                 _uiState.update { it.copy(channelsDvrServerAddress = address) }
             }
         }
+        viewModelScope.launch {
+            smbStorageProfileStore.profiles.collect { profiles ->
+                _uiState.update { it.copy(smbStorageProfiles = profiles) }
+            }
+        }
         registerXtreamIndexJobObserver()
         registerXtreamLiveOnboardingObserver()
         registerSettingsAppUpdateObservers(
@@ -254,6 +266,90 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             backupRestoreStatusStore.observeRestoreJobs().collect { jobs ->
                 _uiState.update { it.copy(backupRestoreJobs = jobs) }
+            }
+        }
+    }
+
+    fun saveSmbStorageProfile(profile: SmbStorageProfile) {
+        viewModelScope.launch {
+            runCatching {
+                smbStorageProfileStore.upsert(profile)
+                if (profile.enabled) {
+                    val current = _uiState.value.recordingStorageState
+                    when (val result = recordingManager.updateStorageConfig(
+                        RecordingStorageConfig(
+                            treeUri = smbRecordingStorageUri(profile.id),
+                            displayName = "${profile.name} (SMB)",
+                            fileNamePattern = current.fileNamePattern,
+                            retentionDays = current.retentionDays,
+                            maxSimultaneousRecordings = current.maxSimultaneousRecordings
+                        )
+                    )) {
+                        is Result.Error -> error(result.message)
+                        else -> Unit
+                    }
+                } else if (_uiState.value.recordingStorageState.treeUri == smbRecordingStorageUri(profile.id)) {
+                    val current = _uiState.value.recordingStorageState
+                    recordingManager.updateStorageConfig(
+                        RecordingStorageConfig(
+                            fileNamePattern = current.fileNamePattern,
+                            retentionDays = current.retentionDays,
+                            maxSimultaneousRecordings = current.maxSimultaneousRecordings
+                        )
+                    )
+                }
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        smbStorageStatus = if (profile.enabled) {
+                            "SMB profile saved and selected for recordings"
+                        } else {
+                            "SMB profile saved"
+                        },
+                        smbStorageStatusSuccess = true
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(smbStorageStatus = error.message ?: "Could not save SMB profile", smbStorageStatusSuccess = false)
+                }
+            }
+        }
+    }
+
+    fun deleteSmbStorageProfile(profileId: String) {
+        viewModelScope.launch {
+            val wasActive = _uiState.value.recordingStorageState.treeUri == smbRecordingStorageUri(profileId)
+            smbStorageProfileStore.delete(profileId)
+            if (wasActive) {
+                val current = _uiState.value.recordingStorageState
+                recordingManager.updateStorageConfig(
+                    RecordingStorageConfig(
+                        fileNamePattern = current.fileNamePattern,
+                        retentionDays = current.retentionDays,
+                        maxSimultaneousRecordings = current.maxSimultaneousRecordings
+                    )
+                )
+            }
+            _uiState.update {
+                it.copy(smbStorageStatus = "SMB profile deleted", smbStorageStatusSuccess = true)
+            }
+        }
+    }
+
+    fun testSmbStorageProfile(profile: SmbStorageProfile) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(smbStorageTestInProgress = true, smbStorageStatus = "Testing SMB storage…", smbStorageStatusSuccess = null)
+            }
+            val result = runCatching { smbStorageClient.test(profile) }
+                .getOrElse { SmbStorageTestResult(false, it.message ?: "SMB test failed") }
+            _uiState.update {
+                it.copy(
+                    smbStorageTestInProgress = false,
+                    smbStorageStatus = result.message,
+                    smbStorageStatusSuccess = result.success
+                )
             }
         }
     }

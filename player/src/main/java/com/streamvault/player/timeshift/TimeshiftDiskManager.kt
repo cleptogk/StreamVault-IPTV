@@ -2,6 +2,7 @@ package com.streamvault.player.timeshift
 
 import android.content.Context
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Manages the timeshift cache directory:
@@ -26,9 +27,17 @@ class TimeshiftDiskManager(
     fun cleanupStaleDirectories(activeSessionDir: File?) {
         val entries = timeshiftDir.listFiles() ?: return
         for (entry in entries) {
-            if (entry == activeSessionDir) continue
+            if (entry == activeSessionDir || isActiveSession(entry)) continue
             entry.deleteRecursively()
         }
+    }
+
+    fun registerActiveSession(sessionDir: File) {
+        activeSessionPaths += sessionDir.absolutePath
+    }
+
+    fun unregisterActiveSession(sessionDir: File) {
+        activeSessionPaths -= sessionDir.absolutePath
     }
 
     /**
@@ -50,7 +59,7 @@ class TimeshiftDiskManager(
      */
     fun evictLruUntilWithinBudget(activeSessionDir: File?) {
         val staleDirs = timeshiftDir.listFiles()
-            ?.filter { it.isDirectory && it != activeSessionDir }
+            ?.filter { it.isDirectory && it != activeSessionDir && !isActiveSession(it) }
             ?.sortedBy { it.lastModified() }
             ?: return
         val target = (maxBudgetBytes * 0.8).toLong()
@@ -63,5 +72,10 @@ class TimeshiftDiskManager(
     companion object {
         /** Default 2 GB global budget for all timeshift data. */
         const val DEFAULT_BUDGET_BYTES = 2L * 1024 * 1024 * 1024
+
+        private val activeSessionPaths = ConcurrentHashMap.newKeySet<String>()
+
+        private fun isActiveSession(directory: File): Boolean =
+            directory.absolutePath in activeSessionPaths
     }
 }

@@ -88,6 +88,8 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
     implementation(libs.security.crypto)
+    implementation(libs.jcifs.ng)
+    implementation(libs.slf4j.nop)
 
     // Core
     implementation(libs.core.ktx)

@@ -40,6 +40,7 @@ import com.streamvault.domain.model.RecordingStorageState
 import com.streamvault.domain.model.RemoteShortcutPreferences
 import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VodVariantPreferenceMode
+import com.streamvault.data.storage.SmbStorageProfile
 
 data class CrashReportUiModel(
     val timestamp: String = "",
@@ -107,6 +108,10 @@ data class SettingsUiState(
     val playerTimeshiftEnabled: Boolean = false,
     val playerTimeshiftDepthMinutes: Int = 30,
     val playerTimeshiftBackend: TimeshiftBackendPreference = TimeshiftBackendPreference.AUTOMATIC,
+    val smbStorageProfiles: List<SmbStorageProfile> = emptyList(),
+    val smbStorageTestInProgress: Boolean = false,
+    val smbStorageStatus: String? = null,
+    val smbStorageStatusSuccess: Boolean? = null,
     val defaultStopPlaybackTimerMinutes: Int = 0,
     val defaultIdleStandbyTimerMinutes: Int = 0,
     val lastSpeedTest: InternetSpeedTestUiModel? = null,

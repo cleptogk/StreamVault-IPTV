@@ -36,6 +36,9 @@ internal fun EnhancedMultiViewControlHud(
     onShowReplacementPicker: () -> Unit,
     dvrConfigured: Boolean,
     onShowDvrPicker: () -> Unit,
+    isFullscreen: Boolean,
+    onToggleFullscreen: () -> Unit,
+    onTogglePauseAll: () -> Unit,
     onRemoveFocusedSlot: () -> Unit,
     onClearPinnedAudio: () -> Unit,
     onPinAudioToFocusedSlot: () -> Unit,
@@ -128,8 +131,32 @@ internal fun EnhancedMultiViewControlHud(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TvButton(
-                onClick = onShowReplacementPicker,
+                onClick = onTogglePauseAll,
+                enabled = uiState.slots.any { it.playerEngine != null },
                 modifier = Modifier.focusRequester(firstControlFocusRequester),
+                colors = ButtonDefaults.colors(
+                    containerColor = if (uiState.isAllPaused) Color(0xFF2E7D32) else Color(0xFF8A4B10),
+                    contentColor = Color.White,
+                    focusedContainerColor = Color.White,
+                    focusedContentColor = Color.Black
+                )
+            ) {
+                Text(if (uiState.isAllPaused) "Resume All" else "Pause All")
+            }
+            TvButton(
+                onClick = onToggleFullscreen,
+                enabled = isFullscreen || (focused != null && !focused.isEmpty),
+                colors = ButtonDefaults.colors(
+                    containerColor = Color(0xFF203A5C),
+                    contentColor = Color.White,
+                    focusedContainerColor = Color.White,
+                    focusedContentColor = Color.Black
+                )
+            ) {
+                Text(if (isFullscreen) "Back to Grid" else "Full Screen")
+            }
+            TvButton(
+                onClick = onShowReplacementPicker,
                 colors = ButtonDefaults.colors(
                     containerColor = Primary.copy(alpha = 0.94f),
                     contentColor = Color.Black,

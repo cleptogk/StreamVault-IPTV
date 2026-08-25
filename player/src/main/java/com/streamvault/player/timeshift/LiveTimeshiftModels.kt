@@ -74,5 +74,6 @@ data class LiveTimeshiftState(
 internal data class LiveTimeshiftSnapshot(
     val url: String,
     val durationMs: Long,
-    val backend: LiveTimeshiftBackend
+    val backend: LiveTimeshiftBackend,
+    val resumePositionMs: Long = 0L
 )

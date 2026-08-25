@@ -42,7 +42,9 @@ data class SportsWallState(
     val panes: List<SportsWallPaneState>,
     val focusedPane: Int,
     val audioPane: Int?,
-    val performanceMode: String
+    val performanceMode: String,
+    val paused: Boolean = false,
+    val fullscreenPane: Int? = null
 )
 
 class SportsWallControlException(
@@ -62,6 +64,8 @@ interface SportsWallControlPort {
     suspend fun savePreset(preset: Int): SportsWallState
     suspend fun loadPreset(preset: Int, launch: Boolean): SportsWallState
     suspend fun openFullscreen(pane: Int)
+    suspend fun pauseAll(): SportsWallState
+    suspend fun resumeAll(): SportsWallState
     suspend fun openRecordingFullscreen(recording: SportsWallRecording)
     fun restoreMultiView()
 }
@@ -83,7 +87,9 @@ class SportsWallController @Inject constructor(
         audioPane = multiViewManager.pinnedAudioSlotIndex.value?.plus(1),
         performanceMode = preferencesRepository.multiViewPerformanceMode.first()
             ?.takeIf { it.isNotBlank() }
-            ?: MultiViewPerformanceMode.AUTO.name
+            ?: MultiViewPerformanceMode.AUTO.name,
+        paused = multiViewManager.pauseAllRequested.value,
+        fullscreenPane = multiViewManager.fullscreenSlotIndex.value?.plus(1)
     )
 
     override suspend fun searchChannels(query: String, limit: Int): List<SportsWallChannelSummary> {
@@ -200,20 +206,21 @@ class SportsWallController @Inject constructor(
     }
 
     override suspend fun openFullscreen(pane: Int) {
-        val channel = multiViewManager.slots.value[pane.toSlotIndex()]
+        val slotIndex = pane.toSlotIndex()
+        multiViewManager.slots.value[slotIndex]
             ?: throw SportsWallControlException("empty_pane", "Cannot fullscreen an empty pane")
-        val request = if (channel.isChannelsDvrRecording()) {
-            Routes.player(
-                streamUrl = channel.streamUrl,
-                title = channel.name,
-                internalId = channel.id,
-                contentType = "VOD",
-                returnRoute = Routes.MULTI_VIEW
-            )
-        } else {
-            Routes.livePlayer(channel, returnRoute = Routes.MULTI_VIEW)
-        }
-        startPlayer(request)
+        multiViewManager.setFullscreenSlot(slotIndex)
+        launchMultiView()
+    }
+
+    override suspend fun pauseAll(): SportsWallState {
+        multiViewManager.setPauseAllRequested(true)
+        return state()
+    }
+
+    override suspend fun resumeAll(): SportsWallState {
+        multiViewManager.setPauseAllRequested(false)
+        return state()
     }
 
     override suspend fun openRecordingFullscreen(recording: SportsWallRecording) {
@@ -238,6 +245,11 @@ class SportsWallController @Inject constructor(
     }
 
     override fun restoreMultiView() {
+        multiViewManager.setFullscreenSlot(null)
+        launchMultiView()
+    }
+
+    private fun launchMultiView() {
         context.startActivity(
             Intent(context, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_EXTERNAL_DESTINATION, ExternalDestination.MultiView)

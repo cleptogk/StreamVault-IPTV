@@ -90,6 +90,7 @@ import com.streamvault.player.stats.PlayerStatsCollector
 import com.streamvault.player.timeshift.DefaultLiveTimeshiftManager
 import com.streamvault.player.timeshift.LiveTimeshiftBackend
 import com.streamvault.player.timeshift.LiveTimeshiftState
+import com.streamvault.player.timeshift.LiveTimeshiftArchive
 import com.streamvault.player.timeshift.LiveTimeshiftStatus
 import com.streamvault.player.timeshift.TimeshiftConfig
 import com.streamvault.player.tracks.PlayerTrackController
@@ -121,7 +122,8 @@ class Media3PlayerEngine @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val playbackCompatibilityRepository: PlaybackCompatibilityRepository,
     private val audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
-    private val playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
+    private val playbackSupportSnapshotStore: PlaybackSupportSnapshotStore,
+    private val liveTimeshiftArchive: LiveTimeshiftArchive
 ) : PlayerEngine {
 
     companion object {
@@ -284,7 +286,7 @@ class Media3PlayerEngine @Inject constructor(
     override val renderSurfaceType: StateFlow<PlayerRenderSurfaceType> = _renderSurfaceType.asStateFlow()
     private var lastPlaybackSupportSnapshotAtMs = 0L
 
-    private val liveTimeshiftManager = DefaultLiveTimeshiftManager(context, okHttpClient)
+    private val liveTimeshiftManager = DefaultLiveTimeshiftManager(context, okHttpClient, liveTimeshiftArchive)
     private val timeshiftCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var timeshiftCleanupJob: Job? = null
     private val _timeshiftState = MutableStateFlow(LiveTimeshiftState())
@@ -339,6 +341,7 @@ class Media3PlayerEngine @Inject constructor(
     @get:MainThread private var activeLiveTimeshiftStreamInfo: StreamInfo? = null
     @get:MainThread private var activeLiveTimeshiftChannelKey: String? = null
     @get:MainThread private var isPlayingTimeshiftSnapshot: Boolean = false
+    private var timeshiftPausedAtMs: Long? = null
     private var pendingTimeshiftSeekMs: Long? = null
     private var pendingTimeshiftSeekToEnd: Boolean = false
     private var pendingTimeshiftAutoPlay: Boolean = false
@@ -704,6 +707,7 @@ class Media3PlayerEngine @Inject constructor(
         val liveInfo = activeLiveTimeshiftStreamInfo ?: return
         val wasSnapshot = isPlayingTimeshiftSnapshot
         isPlayingTimeshiftSnapshot = false
+        timeshiftPausedAtMs = null
         pendingTimeshiftSeekMs = null
         pendingTimeshiftSeekToEnd = false
         pendingTimeshiftAutoPlay = false
@@ -720,6 +724,7 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun pauseTimeshift() {
         if (activeLiveTimeshiftStreamInfo != null && !isPlayingTimeshiftSnapshot && _timeshiftState.value.supported) {
+            timeshiftPausedAtMs = System.currentTimeMillis()
             switchToTimeshiftSnapshot(positionMs = null, autoPlay = false, seekToEnd = true)
             return
         }
@@ -730,7 +735,12 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun resumeTimeshift() {
         if (isPlayingTimeshiftSnapshot) {
-            play()
+            val pausedAtMs = timeshiftPausedAtMs
+            if (pausedAtMs != null) {
+                switchToTimeshiftResumeSnapshot(pausedAtMs)
+            } else {
+                play()
+            }
             return
         }
         seekToLiveEdge()
@@ -1643,6 +1653,27 @@ class Media3PlayerEngine @Inject constructor(
             pendingTimeshiftAutoPlay = autoPlay
             val snapshotInfo = liveInfo.copy(url = snapshot.url, streamType = inferSnapshotStreamType(snapshot.url))
             prepareInternal(snapshotInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = autoPlay)
+            liveTimeshiftManager.releaseRetiredSnapshots()
+            syncTimeshiftState()
+        }
+    }
+
+    private fun switchToTimeshiftResumeSnapshot(pausedAtMs: Long) {
+        val liveInfo = activeLiveTimeshiftStreamInfo ?: return
+        scope.launch {
+            syncTimeshiftState(messageOverride = "Restoring paused live buffer…")
+            val snapshot = liveTimeshiftManager.createResumeSnapshot(pausedAtMs) ?: run {
+                syncTimeshiftState(messageOverride = "The paused live buffer is no longer available.")
+                return@launch
+            }
+            if (activeLiveTimeshiftStreamInfo !== liveInfo) return@launch
+            isPlayingTimeshiftSnapshot = true
+            timeshiftPausedAtMs = null
+            pendingTimeshiftSeekMs = snapshot.resumePositionMs
+            pendingTimeshiftSeekToEnd = false
+            pendingTimeshiftAutoPlay = true
+            val snapshotInfo = liveInfo.copy(url = snapshot.url, streamType = inferSnapshotStreamType(snapshot.url))
+            prepareInternal(snapshotInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
             liveTimeshiftManager.releaseRetiredSnapshots()
             syncTimeshiftState()
         }

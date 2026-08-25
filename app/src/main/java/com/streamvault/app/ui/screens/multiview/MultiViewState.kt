@@ -62,6 +62,7 @@ data class MultiViewSlot(
     val hasError: Boolean = false,
     val errorMessage: String? = null,
     val isAudioPinned: Boolean = false,
+    val isLive: Boolean = false,
     val performanceBlockedReason: String? = null
 ) {
     val isEmpty: Boolean get() = channel == null
@@ -72,6 +73,8 @@ data class MultiViewUiState(
     val focusedSlotIndex: Int = 0,
     val isLaunching: Boolean = false,
     val showSelectionBorder: Boolean = true,
+    val isAllPaused: Boolean = false,
+    val fullscreenSlotIndex: Int? = null,
     val centerTwoSlotLayout: Boolean = false,
     val presets: List<MultiViewPresetUiModel> = emptyList(),
     val pinnedAudioSlotIndex: Int? = null,

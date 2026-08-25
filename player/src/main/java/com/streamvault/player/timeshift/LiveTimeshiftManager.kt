@@ -48,6 +48,7 @@ internal interface LiveTimeshiftManager {
     suspend fun startSession(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig)
     suspend fun stopSession()
     suspend fun createSnapshot(): LiveTimeshiftSnapshot?
+    suspend fun createResumeSnapshot(pausedAtMs: Long): LiveTimeshiftSnapshot?
     suspend fun releaseRetiredSnapshots()
     fun detachComponentCallbacks()
     suspend fun close()
@@ -91,7 +92,8 @@ internal fun buildDashSnapshotPlaylist(
 
 internal class DefaultLiveTimeshiftManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    private val liveTimeshiftArchive: LiveTimeshiftArchive
 ) : LiveTimeshiftManager, ComponentCallbacks2 {
     private val unsafeOkHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
@@ -170,11 +172,14 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                     "timeshift/${channelKey.hashCode()}-${System.currentTimeMillis()}"
                 ).apply { mkdirs() }
 
+                diskManager.registerActiveSession(sessionDir)
+
                 // Crash-safe cleanup: delete all stale timeshift dirs from previous crashes/exits.
                 diskManager.cleanupStaleDirectories(activeSessionDir = sessionDir)
 
                 val backend = chooseBackend(config)
                 if (backend == null) {
+                    diskManager.unregisterActiveSession(sessionDir)
                     sessionDir.deleteRecursively()
                     _state.value = LiveTimeshiftState(
                         enabled = true,
@@ -189,6 +194,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 if (backend == LiveTimeshiftBackend.DISK && !diskManager.isWithinBudget()) {
                     diskManager.evictLruUntilWithinBudget(activeSessionDir = sessionDir)
                     if (!diskManager.isWithinBudget()) {
+                        diskManager.unregisterActiveSession(sessionDir)
                         sessionDir.deleteRecursively()
                         _state.value = LiveTimeshiftState(
                             enabled = true,
@@ -209,6 +215,8 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                     StreamType.RTSP -> null
                 }
                 if (session == null) {
+                    diskManager.unregisterActiveSession(sessionDir)
+                    sessionDir.deleteRecursively()
                     _state.value = LiveTimeshiftState(
                         enabled = true,
                         supported = false,
@@ -218,6 +226,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                     return@withLock
                 }
                 activeSession = session
+                liveTimeshiftArchive.startSession(session.sessionId, support.streamType)
                 _state.value = LiveTimeshiftState(
                     enabled = true,
                     supported = true,
@@ -285,6 +294,32 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
             session.createSnapshot()
         }
     }
+
+    override suspend fun createResumeSnapshot(pausedAtMs: Long): LiveTimeshiftSnapshot? =
+        withContext(Dispatchers.IO) {
+            val session = mutex.withLock {
+                val current = activeSession ?: return@withLock null
+                current.activeSnapshotDir?.let { retiredSnapshotDirs.addLast(it) }
+                current
+            } ?: return@withContext null
+
+            val restoredDir = File(session.sessionDir, "archive-${System.currentTimeMillis()}").apply { mkdirs() }
+            val archived = liveTimeshiftArchive.restoreSince(session.sessionId, pausedAtMs, restoredDir)
+            if (archived != null) {
+                session.activeSnapshotDir = restoredDir
+                return@withContext LiveTimeshiftSnapshot(
+                    url = archived.file.toURI().toString(),
+                    durationMs = archived.durationMs,
+                    backend = LiveTimeshiftBackend.DISK,
+                    resumePositionMs = 0L
+                )
+            }
+            restoredDir.deleteRecursively()
+
+            val local = session.createSnapshot() ?: return@withContext null
+            val elapsedPauseMs = (System.currentTimeMillis() - pausedAtMs).coerceAtLeast(0L)
+            local.copy(resumePositionMs = (local.durationMs - elapsedPauseMs).coerceAtLeast(0L))
+        }
 
     override suspend fun releaseRetiredSnapshots() {
         withContext(Dispatchers.IO) {
@@ -378,6 +413,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         val backend: LiveTimeshiftBackend,
         val sessionDir: File
     ) {
+        val sessionId: String = sessionDir.name
         var job: Job? = null
         var activeSnapshotDir: File? = null
         val effectiveDepthMs: Long = config.effectiveDepthMs(backend)
@@ -390,6 +426,8 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
 
         open suspend fun stop() {
             stopOwnedTimeshiftCapture(activeCall, job) {
+                liveTimeshiftArchive.endSession(sessionId)
+                diskManager.unregisterActiveSession(sessionDir)
                 sessionDir.deleteRecursively()
             }
         }
@@ -596,6 +634,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 file = active.file,
                 payload = if (backend == LiveTimeshiftBackend.MEMORY) (output as ByteArrayOutputStream).toByteArray() else null
             )
+            chunk.file?.let { liveTimeshiftArchive.archiveSegment(sessionId, it, chunk.durationMs, endedAtMs) }
             val windowDuration = chunkMutex.withLock {
                 runningChunkDurationMs += chunk.durationMs
                 chunks += chunk
@@ -666,6 +705,14 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                                 lastProcessedSequence = remoteSegment.mediaSequence
                                 if (backend == LiveTimeshiftBackend.DISK) checkDiskAndBudget()
                                 val retained = retainHlsSegment(remoteSegment)
+                                retained.file?.let {
+                                    liveTimeshiftArchive.archiveSegment(
+                                        sessionId = sessionId,
+                                        source = it,
+                                        durationMs = retained.durationMs,
+                                        capturedAtMs = System.currentTimeMillis()
+                                    )
+                                }
                                 val windowDuration = segmentMutex.withLock {
                                     runningSegmentDurationMs += retained.durationMs
                                     segments += retained
@@ -904,6 +951,9 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                         if (seenSegments.add("__init__:$initUrl")) {
                             if (backend == LiveTimeshiftBackend.DISK) checkDiskAndBudget()
                             val retained = retainSegment(RemoteHlsSegment(initUrl, 0L), isInit = true)
+                            retained.file?.let {
+                                liveTimeshiftArchive.archiveSegment(sessionId, it, 0L, System.currentTimeMillis())
+                            }
                             segmentMutex.withLock { segments += retained }
                         }
                     }
@@ -913,6 +963,11 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                         if (!seenSegments.add(remote.uri)) return@forEach
                         if (backend == LiveTimeshiftBackend.DISK) checkDiskAndBudget()
                         val retained = retainSegment(remote, isInit = false)
+                        retained.file?.let {
+                            liveTimeshiftArchive.archiveSegment(
+                                sessionId, it, retained.durationMs, System.currentTimeMillis()
+                            )
+                        }
                         val windowDuration = segmentMutex.withLock {
                             runningSegmentDurationMs += retained.durationMs
                             segments += retained

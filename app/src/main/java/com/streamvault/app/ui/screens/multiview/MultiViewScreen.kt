@@ -123,7 +123,12 @@ fun MultiViewScreen(
     }
     BackHandler(enabled = showDvrPicker) { showDvrPicker = false }
     BackHandler(enabled = showControls) { showControls = false }
-    BackHandler(enabled = !showReplacementPicker && !showDvrPicker && !showControls) { onBack() }
+    BackHandler(
+        enabled = uiState.fullscreenSlotIndex != null && !showReplacementPicker && !showDvrPicker && !showControls
+    ) { viewModel.exitFullscreen() }
+    BackHandler(
+        enabled = uiState.fullscreenSlotIndex == null && !showReplacementPicker && !showDvrPicker && !showControls
+    ) { onBack() }
 
     // initSlots() is driven by the ON_START lifecycle observer below; do not call it here.
     LaunchedEffect(Unit) {
@@ -197,6 +202,10 @@ fun MultiViewScreen(
                         showControls = !showControls
                         true
                     }
+                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                        viewModel.togglePauseAll()
+                        true
+                    }
                     KeyEvent.KEYCODE_BACK -> {
                         when {
                             showDvrPicker -> {
@@ -253,7 +262,22 @@ fun MultiViewScreen(
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            if (useCenteredCompactLayout) {
+            if (uiState.fullscreenSlotIndex != null) {
+                val slotIndex = uiState.fullscreenSlotIndex ?: uiState.focusedSlotIndex
+                GridPlayerCell(
+                    slot = uiState.slots.getOrNull(slotIndex),
+                    slotIndex = slotIndex,
+                    focusedSlotIndex = slotIndex,
+                    hasPinnedAudio = uiState.pinnedAudioSlotIndex != null,
+                    showSelectionBorder = false,
+                    showControls = showControls,
+                    onClick = { showControls = !showControls },
+                    onFocused = viewModel::setFocus,
+                    firstSlotFocusRequester = firstSlotFocusRequester,
+                    firstControlFocusRequester = firstControlFocusRequester,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (useCenteredCompactLayout) {
                 CenteredCompactLayout(
                     slots = visibleSlots,
                     focusedSlotIndex = uiState.focusedSlotIndex,
@@ -311,6 +335,12 @@ fun MultiViewScreen(
                             showDvrPicker = true
                             viewModel.loadChannelsDvrRecordings()
                         },
+                        isFullscreen = uiState.fullscreenSlotIndex != null,
+                        onToggleFullscreen = {
+                            viewModel.toggleFullscreen()
+                            showControls = false
+                        },
+                        onTogglePauseAll = viewModel::togglePauseAll,
                         onRemoveFocusedSlot = viewModel::removeFocusedSlot,
                         onClearPinnedAudio = viewModel::clearPinnedAudio,
                         onPinAudioToFocusedSlot = viewModel::pinAudioToFocusedSlot,

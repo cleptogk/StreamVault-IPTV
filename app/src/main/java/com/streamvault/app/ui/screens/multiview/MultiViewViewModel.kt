@@ -12,6 +12,7 @@ import com.streamvault.app.sportswall.ChannelsDvrRecording
 import com.streamvault.app.sportswall.toChannel
 import com.streamvault.app.ui.model.associateByAnyRawId
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.storage.SmbStorageProfileStore
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
@@ -24,6 +25,7 @@ import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.UnlockParentalCategory
 import com.streamvault.domain.usecase.UnlockParentalCategoryCommand
 import com.streamvault.player.PlayerEngine
+import com.streamvault.player.timeshift.TimeshiftConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,7 +53,8 @@ class MultiViewViewModel @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val parentalControlManager: ParentalControlManager,
     private val unlockParentalCategory: UnlockParentalCategory,
-    private val channelsDvrClient: ChannelsDvrClient
+    private val channelsDvrClient: ChannelsDvrClient,
+    private val smbStorageProfileStore: SmbStorageProfileStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MultiViewUiState())
@@ -114,6 +117,17 @@ class MultiViewViewModel @Inject constructor(
                     }
                 )
                 applyFocusAudio(_uiState.value.focusedSlotIndex)
+            }
+        }
+        viewModelScope.launch {
+            multiViewManager.fullscreenSlotIndex.collect { slotIndex ->
+                _uiState.value = _uiState.value.copy(fullscreenSlotIndex = slotIndex)
+            }
+        }
+        viewModelScope.launch {
+            multiViewManager.pauseAllRequested.collect { paused ->
+                if (paused && !_uiState.value.isAllPaused) pauseAll()
+                if (!paused && _uiState.value.isAllPaused) resumeAll()
             }
         }
         viewModelScope.launch {
@@ -347,6 +361,22 @@ class MultiViewViewModel @Inject constructor(
                             return@launch
                         }
                         localEngine.prepare(streamInfo)
+                        if (streamInfo.isLive == true) {
+                            val timeshiftConfig = TimeshiftConfig(
+                                enabled = true,
+                                depthMinutes = preferencesRepository.playerTimeshiftDepthMinutes.first(),
+                                backendPreference = if (smbStorageProfileStore.enabledProfile() != null) {
+                                    com.streamvault.domain.model.TimeshiftBackendPreference.STORAGE
+                                } else {
+                                    preferencesRepository.playerTimeshiftBackend.first()
+                                }
+                            )
+                            localEngine.startLiveTimeshift(
+                                streamInfo = streamInfo,
+                                channelKey = channel.id.toString(),
+                                config = timeshiftConfig
+                            )
+                        }
                         localEngine.play()
 
                         // Success: publish engine
@@ -359,6 +389,7 @@ class MultiViewViewModel @Inject constructor(
                                 isLoading = false,
                                 hasError = false,
                                 errorMessage = null,
+                                isLive = streamInfo.isLive == true,
                                 playerEngine = localEngine
                             )
                         }
@@ -405,6 +436,47 @@ class MultiViewViewModel @Inject constructor(
             applyFocusAudio(slotIndex)
             showSelectionBorderTemporarily()
         }
+    }
+
+    /** Pauses every active pane at one coordinated wall position. Live panes use timeshift. */
+    fun pauseAll() {
+        if (_uiState.value.isAllPaused) return
+        _uiState.value.slots.forEach { slot ->
+            val engine = slot.playerEngine ?: return@forEach
+            if (slot.isLive) engine.pauseTimeshift() else engine.pause()
+        }
+        _uiState.value = _uiState.value.copy(isAllPaused = true)
+        multiViewManager.setPauseAllRequested(true)
+    }
+
+    /** Resumes every pane from its paused position, including live panes behind the live edge. */
+    fun resumeAll() {
+        if (!_uiState.value.isAllPaused) return
+        _uiState.value.slots.forEach { slot ->
+            val engine = slot.playerEngine ?: return@forEach
+            if (slot.isLive) engine.resumeTimeshift() else engine.play()
+        }
+        _uiState.value = _uiState.value.copy(isAllPaused = false)
+        multiViewManager.setPauseAllRequested(false)
+    }
+
+    fun togglePauseAll() {
+        if (_uiState.value.isAllPaused) resumeAll() else pauseAll()
+    }
+
+    fun toggleFullscreen() {
+        val current = _uiState.value.fullscreenSlotIndex
+        multiViewManager.setFullscreenSlot(
+            if (current == null && !_uiState.value.slots[_uiState.value.focusedSlotIndex].isEmpty) {
+                _uiState.value.focusedSlotIndex
+            } else {
+                null
+            }
+        )
+    }
+
+    fun exitFullscreen() {
+        multiViewManager.setFullscreenSlot(null)
     }
 
     private fun showSelectionBorderTemporarily() {
@@ -624,6 +696,7 @@ class MultiViewViewModel @Inject constructor(
     }
 
     private fun releaseActivePlayers() {
+        multiViewManager.setPauseAllRequested(false)
         cancelSlotStartupJobs()
         cancelSlotErrorJobs()
         playerEngines.values.forEach { engine ->
@@ -633,6 +706,7 @@ class MultiViewViewModel @Inject constructor(
         }
         playerEngines.clear()
         _uiState.value = _uiState.value.copy(
+            isAllPaused = false,
             slots = _uiState.value.slots.map { slot ->
                 if (slot.isEmpty) slot else slot.copy(isLoading = false, playerEngine = null)
             }

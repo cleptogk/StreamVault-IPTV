@@ -21,6 +21,8 @@ import com.streamvault.data.manager.recording.RecordingSourceResolver
 import com.streamvault.data.manager.recording.ResolvedRecordingSource
 import com.streamvault.data.manager.recording.TsPassThroughCaptureEngine
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.storage.SmbStorageClient
+import com.streamvault.data.storage.SmbStorageProfileStore
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.RecordingFailureCategory
 import com.streamvault.domain.model.RecordingRecurrence
@@ -60,6 +62,8 @@ class RecordingManagerImplTest {
     private val alarmScheduler: RecordingAlarmScheduler = mock()
     private val preferencesRepository: PreferencesRepository = mock()
     private val recordingServiceLauncher: RecordingServiceLauncher = mock()
+    private val smbStorageProfileStore: SmbStorageProfileStore = mock()
+    private val smbStorageClient: SmbStorageClient = mock()
     private val transactionRunner = object : DatabaseTransactionRunner {
         override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
     }
@@ -300,7 +304,9 @@ class RecordingManagerImplTest {
         hlsLiveCaptureEngine = hlsEngine,
         alarmScheduler = alarmScheduler,
         preferencesRepository = preferencesRepository,
-        recordingServiceLauncher = recordingServiceLauncher
+        recordingServiceLauncher = recordingServiceLauncher,
+        smbStorageProfileStore = smbStorageProfileStore,
+        smbStorageClient = smbStorageClient
     )
 
     private fun defaultStorage(maxSimultaneousRecordings: Int = 2) = RecordingStorageEntity(
