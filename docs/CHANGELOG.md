@@ -2,6 +2,17 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17.24-sports-wall]
+
+### Fixed
+
+- Open semantic single-recording requests directly in StreamVault's full-screen
+  player without constructing or briefly displaying the 2x2 multiview grid.
+- Return Back from a semantic single-recording session to StreamVault Home,
+  never to the multiview grid.
+- Replace the Welcome loading route during cold external launches so Back cannot
+  reveal a permanently spinning "Preparing your library" screen.
+
 ## [1.0.17.23-sports-wall]
 
 ### Fixed

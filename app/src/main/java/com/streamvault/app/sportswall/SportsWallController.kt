@@ -240,7 +240,9 @@ class SportsWallController @Inject constructor(
                 title = channel.name,
                 internalId = channel.id,
                 contentType = "VOD",
-                returnRoute = Routes.MULTI_VIEW
+                // Single-recording commands are not multiview sessions. Back returns to the
+                // normal StreamVault home rather than creating or revealing a 2x2 grid.
+                returnRoute = Routes.HOME
             )
         )
     }

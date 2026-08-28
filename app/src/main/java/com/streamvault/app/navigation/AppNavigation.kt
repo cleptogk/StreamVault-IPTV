@@ -330,6 +330,15 @@ private fun NavHostController.navigateToExternalPlayer(request: PlayerNavigation
     return true
 }
 
+internal fun externalPlayerBaseRoute(
+    currentRoute: String?,
+    request: PlayerNavigationRequest
+): String? = if (currentRoute == Routes.WELCOME) {
+    request.returnRoute?.takeIf { it.isNotBlank() } ?: Routes.HOME
+} else {
+    null
+}
+
 internal fun AppLandingDestination.toAppRoute(): String = when (this) {
     AppLandingDestination.HOME -> Routes.HOME
     AppLandingDestination.LIVE_TV -> Routes.LIVE_TV
@@ -436,13 +445,31 @@ fun AppNavigation(mainActivity: MainActivity) {
         entry.lifecycle.awaitResumed()
         when (val request = externalNavigationRequest) {
             is ExternalNavigationRequest.Player -> {
-                if (navController.navigateToExternalPlayer(request.request)) {
+                val baseRoute = externalPlayerBaseRoute(
+                    entry.destination?.route,
+                    request.request
+                )
+                if (baseRoute != null) {
+                    // A cold semantic launch starts with Welcome as the NavHost root. Replace it
+                    // with the player's real return destination before opening playback so Back
+                    // can never expose the one-shot Welcome loading screen.
+                    navController.navigateIfResumed(baseRoute) {
+                        popUpTo(Routes.WELCOME) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                } else if (navController.navigateToExternalPlayer(request.request)) {
                     mainActivity.clearExternalNavigationRequest()
                 }
             }
 
             is ExternalNavigationRequest.Destination -> {
-                if (navController.navigateIfResumed(request.destination.toRoute()) { launchSingleTop = true }) {
+                if (navController.navigateIfResumed(request.destination.toRoute()) {
+                        launchSingleTop = true
+                        if (entry.destination?.route == Routes.WELCOME) {
+                            popUpTo(Routes.WELCOME) { inclusive = true }
+                        }
+                    }
+                ) {
                     mainActivity.clearExternalNavigationRequest()
                 }
             }
