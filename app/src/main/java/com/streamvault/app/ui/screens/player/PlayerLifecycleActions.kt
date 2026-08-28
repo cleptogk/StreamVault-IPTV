@@ -7,6 +7,7 @@ import com.streamvault.player.PlayerEngine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 private const val LIFECYCLE_TOKEN_RENEWAL_LEAD_MS = 60_000L
 private const val LIFECYCLE_TOKEN_RENEWAL_CHECK_INTERVAL_MS = 10_000L
@@ -14,12 +15,17 @@ private const val LIFECYCLE_TOKEN_RENEWAL_CHECK_INTERVAL_MS = 10_000L
 /** Captures the old content before prepare mutates the shared playback context. */
 internal fun PlayerViewModel.queueContentSwitchProgressFlush(): Job? {
     if (currentContentType == ContentType.LIVE) return null
+    val playbackUrl = currentStreamUrl
+    val channelsPlayback = channelsDvrClient.playbackIdentity(playbackUrl) != null
+    val positionMs = playerEngine.currentPosition.value
     val history = buildPlaybackHistorySnapshot(
-        positionMs = playerEngine.currentPosition.value,
+        positionMs = positionMs,
         durationMs = playerEngine.duration.value
     )
     return viewModelScope.launch {
-        if (history != null) {
+        if (channelsPlayback && positionMs > 0L) {
+            persistChannelsPlaybackProgress(playbackUrl, positionMs)
+        } else if (history != null) {
             val result = playbackHistoryCoordinator.updateResumePosition(history)
             logRepositoryFailure(
                 operation = "Flush playback progress for content switch",
@@ -59,7 +65,12 @@ internal fun PlayerViewModel.startProgressTracking() {
     val requestVersion = prepareRequestVersion
     progressTrackingJob = playbackSessionScope(requestVersion)?.launch {
         while (true) {
-            delay(30_000)
+            val syncIntervalMs = if (channelsDvrClient.playbackIdentity(currentStreamUrl) != null) {
+                5_000L
+            } else {
+                30_000L
+            }
+            delay(syncIntervalMs)
             if (!isAppInForeground || !playerEngine.isPlaying.value) continue
             persistPlaybackProgress()
         }
@@ -70,6 +81,11 @@ internal suspend fun PlayerViewModel.persistPlaybackProgress() {
     val pos = playerEngine.currentPosition.value
     val dur = playerEngine.duration.value
 
+    if (channelsDvrClient.playbackIdentity(currentStreamUrl) != null) {
+        if (pos > 0L) persistChannelsPlaybackProgress(currentStreamUrl, pos)
+        return
+    }
+
     if (pos > 0 && dur > 0) {
         val history = buildPlaybackHistorySnapshot(pos, dur) ?: return
         val result = playbackHistoryCoordinator.updateResumePosition(history)
@@ -79,6 +95,24 @@ internal suspend fun PlayerViewModel.persistPlaybackProgress() {
         )
         if (result.isSuccess) {
             playbackHistoryCoordinator.updateWatchNextProgress(history)
+        }
+    }
+}
+
+internal suspend fun PlayerViewModel.persistChannelsPlaybackProgress(
+    playbackUrl: String,
+    positionMs: Long
+) {
+    channelsProgressMutex.withLock {
+        val wholeSeconds = positionMs.coerceAtLeast(0L) / 1_000L
+        val progressKey = playbackUrl to wholeSeconds
+        if (lastSyncedChannelsProgress == progressKey) return
+        runCatching {
+            channelsDvrClient.updatePlaybackPosition(playbackUrl, positionMs)
+        }.onSuccess { updated ->
+            if (updated) lastSyncedChannelsProgress = progressKey
+        }.onFailure { error ->
+            android.util.Log.w("PlayerVM", "Channels DVR progress sync failed", error)
         }
     }
 }

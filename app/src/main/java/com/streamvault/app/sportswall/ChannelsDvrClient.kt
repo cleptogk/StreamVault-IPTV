@@ -16,6 +16,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 data class ChannelsDvrRecording(
     val id: String,
@@ -25,6 +26,21 @@ data class ChannelsDvrRecording(
     val playable: Boolean = true,
     val corrupted: Boolean = false
 )
+
+data class ChannelsDvrPlaybackIdentity(
+    val serverAddress: String,
+    val recordingId: String
+)
+
+data class ChannelsDvrPlaybackState(
+    val positionMs: Long,
+    val watched: Boolean,
+    val durationMs: Long? = null,
+    val inProgress: Boolean = false
+)
+
+internal fun ChannelsDvrPlaybackState.shouldOfferResume(): Boolean =
+    !watched && positionMs > 5_000L
 
 internal object ChannelsDvrAddressPolicy {
     private val lanHostPattern = Regex("10\\.217\\.0\\.[0-9]{1,3}")
@@ -49,6 +65,10 @@ class ChannelsDvrClient @Inject constructor(
     private val okHttpClient: OkHttpClient
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+    private val channelsHttpClient = okHttpClient.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
 
     suspend fun listRecordings(serverAddress: String): List<ChannelsDvrRecording> = withContext(Dispatchers.IO) {
         val baseUrl = ChannelsDvrAddressPolicy.normalize(serverAddress)
@@ -58,7 +78,7 @@ class ChannelsDvrClient @Inject constructor(
             .addQueryParameter("order", "desc")
             .build()
         val request = Request.Builder().url(url).get().build()
-        okHttpClient.newCall(request).execute().use { response ->
+        channelsHttpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("Channels DVR returned HTTP ${response.code}")
             }
@@ -73,6 +93,90 @@ class ChannelsDvrClient @Inject constructor(
             }
             rows.mapNotNull { parseRecording(it, activeFileIds) }
         }
+    }
+
+    fun playbackIdentity(playbackUrl: String): ChannelsDvrPlaybackIdentity? {
+        val uri = runCatching { URI(playbackUrl.trim()) }.getOrNull() ?: return null
+        if (uri.userInfo != null || uri.fragment != null) return null
+        val baseUrl = runCatching {
+            ChannelsDvrAddressPolicy.normalize("${uri.scheme}://${uri.host}:${uri.port}")
+        }.getOrNull() ?: return null
+        val match = Regex(
+            "^/dvr/files/([A-Za-z0-9_.-]{1,128})/(?:hls/(?:master|stream)\\.m3u8|m3u8|stream\\.mpg)$"
+        )
+            .matchEntire(uri.path.orEmpty()) ?: return null
+        val nativeCopyHls = uri.path.endsWith("/hls/stream.m3u8")
+        val expectedNativeCopyQuery = "acodec=aac&indexed=true&ssize=1&vcodec=copy"
+        if (
+            (nativeCopyHls && uri.rawQuery != expectedNativeCopyQuery) ||
+            (!nativeCopyHls && !uri.rawQuery.isNullOrBlank())
+        ) return null
+        val recordingId = match.groupValues[1]
+        if (!isValidRecordingId(recordingId)) return null
+        return ChannelsDvrPlaybackIdentity(
+            serverAddress = baseUrl,
+            recordingId = recordingId
+        )
+    }
+
+    suspend fun loadPlaybackState(playbackUrl: String): ChannelsDvrPlaybackState? = withContext(Dispatchers.IO) {
+        val identity = playbackIdentity(playbackUrl) ?: return@withContext null
+        val request = Request.Builder()
+            .url("${identity.serverAddress}/api/v1/episodes/${identity.recordingId}")
+            .get()
+            .build()
+        channelsHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IllegalStateException("Channels DVR returned HTTP ${response.code}")
+            }
+            val payload = response.body?.string()
+                ?: throw IllegalStateException("Channels DVR returned an empty response")
+            parsePlaybackState(json.parseToJsonElement(payload))
+        }
+    }
+
+    suspend fun updatePlaybackPosition(playbackUrl: String, positionMs: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            val identity = playbackIdentity(playbackUrl) ?: return@withContext false
+            val request = playbackProgressRequest(identity, positionMs)
+            channelsHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IllegalStateException("Channels DVR returned HTTP ${response.code}")
+                }
+            }
+            true
+        }
+
+    internal fun parsePlaybackState(element: JsonElement): ChannelsDvrPlaybackState? {
+        val row = element as? JsonObject ?: return null
+        val watched = row.boolean("watched") ?: row.boolean("Watched") ?: false
+        val seconds = row.number("playback_time") ?: row.number("PlaybackTime") ?: 0.0
+        if (!seconds.isFinite()) return null
+        val durationSeconds = row.number("duration") ?: row.number("Duration")
+        val durationMs = durationSeconds
+            ?.takeIf { it.isFinite() && it > 0.0 }
+            ?.let { (it * 1_000.0).coerceAtMost(Long.MAX_VALUE.toDouble()).toLong() }
+        return ChannelsDvrPlaybackState(
+            positionMs = if (watched) 0L else {
+                (seconds.coerceAtLeast(0.0) * 1_000.0)
+                    .coerceAtMost(Long.MAX_VALUE.toDouble())
+                    .toLong()
+            },
+            watched = watched,
+            durationMs = durationMs,
+            inProgress = row.boolean("completed") == false || row.boolean("processed") == false
+        )
+    }
+
+    internal fun playbackProgressRequest(
+        identity: ChannelsDvrPlaybackIdentity,
+        positionMs: Long
+    ): Request {
+        val wholeSeconds = positionMs.coerceAtLeast(0L) / 1_000L
+        return Request.Builder()
+            .url("${identity.serverAddress}/dvr/files/${identity.recordingId}/playback_time/$wholeSeconds")
+            .put(ByteArray(0).toRequestBody(null))
+            .build()
     }
 
     fun toSportsWallRecording(
@@ -92,7 +196,7 @@ class ChannelsDvrClient @Inject constructor(
 
     private fun loadActiveFileIds(baseUrl: String): Set<String> {
         val request = Request.Builder().url("$baseUrl/dvr/jobs").get().build()
-        return okHttpClient.newCall(request).execute().use { response ->
+        return channelsHttpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("Channels DVR returned HTTP ${response.code}")
             }
@@ -144,7 +248,7 @@ class ChannelsDvrClient @Inject constructor(
         // lifecycle fields that actually make the recording unusable.
         if (row.boolean("cancelled") == true) return null
         val id = row.string("id") ?: row.string("ID") ?: row.string("recording_id") ?: return null
-        if (!id.matches(Regex("[A-Za-z0-9_.-]{1,128}"))) return null
+        if (!isValidRecordingId(id)) return null
         val incomplete = row.boolean("completed") == false || row.boolean("processed") == false
         val inProgress = incomplete && id in activeFileIds
         val title = row.string("event_title") ?: row.string("title") ?: row.string("name") ?: id
@@ -169,6 +273,9 @@ class ChannelsDvrClient @Inject constructor(
         val row = element as? JsonObject ?: return false
         return row.boolean("completed") == false || row.boolean("processed") == false
     }
+
+    private fun isValidRecordingId(id: String): Boolean =
+        id.matches(Regex("[A-Za-z0-9_.-]{1,128}")) && id !in setOf(".", "..")
 
     private fun JsonObject.string(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull
     private fun JsonObject.boolean(name: String): Boolean? = this[name]?.jsonPrimitive?.booleanOrNull

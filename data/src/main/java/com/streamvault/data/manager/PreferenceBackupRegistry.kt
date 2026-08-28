@@ -40,7 +40,7 @@ internal object PreferenceBackupRegistry {
         "xtream_base64_text_compatibility", "zap_auto_revert", "prevent_standby_during_playback",
         "auto_play_next_episode", "auto_check_app_updates", "auto_download_app_updates",
         "recording_wifi_only", "recording_padding_before_minutes", "recording_padding_after_minutes",
-        "max_concurrent_streams"
+        "max_concurrent_streams", "channels_dvr_server_address"
     )
     private val deviceBoundStorageKeys = setOf("download_tree_uri")
     private val runtimeStorageKeys = setOf(

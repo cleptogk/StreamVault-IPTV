@@ -19,13 +19,15 @@ The upstream application (`com.streamvault.app`) is a separate installation.
 Installing, updating, or removing Sports Wall does not replace upstream
 StreamVault or TiviMate.
 
-Completed Channels DVR recordings use the exact allowlisted native-copy HLS
-rendition. Active recordings use only the matching direct growing
-`/dvr/files/{id}/stream.mpg` path, without query parameters; this avoids the
-segment-generation lag observed with transcoded HLS while a file is growing.
+Completed and active Channels DVR recordings use the exact allowlisted indexed
+native-copy HLS rendition. This provides a stable seekable timeline while an
+active recording grows without forcing video transcoding.
 The user-facing Recordings destination reads this same configured DVR source
 and playback policy; the legacy `downloads` route remains stable and local
 StreamVault downloads remain available in a separate section on that screen.
+StreamVault reads and updates Channels DVR's server-side playback position, so
+its Start Over / Resume prompt and later progress are shared with Channels
+clients instead of being stored as unrelated local IPTV history.
 
 ## Signed release build
 

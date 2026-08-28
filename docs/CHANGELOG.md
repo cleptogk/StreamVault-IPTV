@@ -2,6 +2,24 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17.28-sports-wall]
+
+### Added
+
+- Read each Channels DVR recording's server-side playback position and show the
+  existing Start Over / Resume prompt when appropriate.
+- Sync Channels recording progress back to the DVR every five seconds while
+  playing and at content switches, app backgrounding, and player exit so the
+  official Channels clients and StreamVault share a resume point.
+
+### Fixed
+
+- Make hidden-control D-pad Left and Right presses seek VOD directly by 30
+  seconds without requiring the player controls to be opened first.
+- Use indexed native-copy HLS for active recordings as well as completed
+  recordings, preventing the moving raw-stream timeline from looping seeks.
+- Restore the Channels DVR server-address preference to backup classification.
+
 ## [1.0.17.26-sports-wall]
 
 ### Added

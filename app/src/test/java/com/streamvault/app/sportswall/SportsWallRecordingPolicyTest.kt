@@ -23,7 +23,7 @@ class SportsWallRecordingPolicyTest {
     }
 
     @Test
-    fun rewritesInProgressRecordingToDirectGrowingStream() {
+    fun rewritesInProgressRecordingToIndexedNativePlaylist() {
         val recording = SportsWallRecordingPolicy.preferNativeVideo(
             SportsWallRecording(
                 id = "866",
@@ -34,7 +34,8 @@ class SportsWallRecordingPolicyTest {
         )
 
         assertThat(recording.playbackUrl).isEqualTo(
-            "http://10.217.0.120:8089/dvr/files/866/stream.mpg"
+            "http://10.217.0.120:8089/dvr/files/866/hls/stream.m3u8?" +
+                "acodec=aac&indexed=true&ssize=1&vcodec=copy"
         )
         assertThat(recording.inProgress).isTrue()
     }

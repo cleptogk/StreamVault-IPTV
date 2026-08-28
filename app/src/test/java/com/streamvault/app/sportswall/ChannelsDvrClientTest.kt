@@ -99,7 +99,7 @@ class ChannelsDvrClientTest {
     }
 
     @Test
-    fun `completed recording maps to native HLS and active recording maps to direct stream`() {
+    fun `completed and active recordings map to indexed native HLS`() {
         val completed = client.toSportsWallRecording(
             "http://10.217.0.120:8089",
             ChannelsDvrRecording(id = "865", title = "Completed")
@@ -114,6 +114,77 @@ class ChannelsDvrClientTest {
                 "acodec=aac&indexed=true&ssize=1&vcodec=copy"
         )
         assertThat(active.playbackUrl)
-            .isEqualTo("http://10.217.0.120:8089/dvr/files/866/stream.mpg")
+            .isEqualTo(
+                "http://10.217.0.120:8089/dvr/files/866/hls/stream.m3u8?" +
+                    "acodec=aac&indexed=true&ssize=1&vcodec=copy"
+            )
+    }
+
+    @Test
+    fun `playback identity accepts only private Channels recording urls`() {
+        assertThat(
+            client.playbackIdentity(
+                "http://10.217.0.120:8089/dvr/files/866/hls/stream.m3u8?" +
+                    "acodec=aac&indexed=true&ssize=1&vcodec=copy"
+            )
+        ).isEqualTo(
+            ChannelsDvrPlaybackIdentity("http://10.217.0.120:8089", "866")
+        )
+        assertThat(client.playbackIdentity("https://example.com/dvr/files/866/hls/master.m3u8")).isNull()
+        assertThat(client.playbackIdentity("http://10.217.0.120:8089/dvr/files/../settings")).isNull()
+        assertThat(client.playbackIdentity("http://10.217.0.120:8089/dvr/files/866/preview.jpg")).isNull()
+        assertThat(client.playbackIdentity("http://10.217.0.120:8089/dvr/files/866/hls/stream.m3u8?indexed=true")).isNull()
+        assertThat(client.playbackIdentity("http://10.217.0.120:8089/dvr/files/866/stream.mpg?token=x")).isNull()
+        assertThat(client.playbackIdentity("http://user@10.217.0.120:8089/dvr/files/866/stream.mpg")).isNull()
+    }
+
+    @Test
+    fun `playback position parses seconds and progress update uses whole seconds`() {
+        val progress = Json.parseToJsonElement(
+            """{"playback_time":9277.75,"watched":false,"completed":false,"processed":false}"""
+        )
+        assertThat(client.parsePlaybackState(progress)).isEqualTo(
+            ChannelsDvrPlaybackState(
+                positionMs = 9_277_750L,
+                watched = false,
+                inProgress = true
+            )
+        )
+
+        val request = client.playbackProgressRequest(
+            ChannelsDvrPlaybackIdentity("http://10.217.0.120:8089", "866"),
+            9_281_990L
+        )
+        assertThat(request.method).isEqualTo("PUT")
+        assertThat(request.url.toString()).isEqualTo(
+            "http://10.217.0.120:8089/dvr/files/866/playback_time/9281"
+        )
+    }
+
+    @Test
+    fun `watched recording does not expose a stale resume position`() {
+        val progress = Json.parseToJsonElement(
+            """{"playback_time":6812,"duration":7070,"watched":true,"completed":true,"processed":true}"""
+        )
+        assertThat(client.parsePlaybackState(progress)).isEqualTo(
+            ChannelsDvrPlaybackState(
+                positionMs = 0L,
+                watched = true,
+                durationMs = 7_070_000L
+            )
+        )
+    }
+
+    @Test
+    fun `resume policy follows Channels watched state instead of a local completion threshold`() {
+        assertThat(
+            ChannelsDvrPlaybackState(
+                positionMs = 6_812_000L,
+                watched = false,
+                durationMs = 7_070_000L
+            ).shouldOfferResume()
+        ).isTrue()
+        assertThat(ChannelsDvrPlaybackState(positionMs = 5_000L, watched = false).shouldOfferResume()).isFalse()
+        assertThat(ChannelsDvrPlaybackState(positionMs = 90_000L, watched = true).shouldOfferResume()).isFalse()
     }
 }

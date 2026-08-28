@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.cast.CastConnectionState
 import com.streamvault.app.cast.CastPlaybackReportMode
+import com.streamvault.app.sportswall.ChannelsDvrClient
+import com.streamvault.app.sportswall.shouldOfferResume
 import com.streamvault.app.util.isPlaybackComplete
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.ChannelNumberingMode
@@ -44,6 +46,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import android.content.Context
 import javax.inject.Inject
 
@@ -71,6 +74,7 @@ class PlayerViewModel @Inject constructor(
     internal val playerPlaybackContextCoordinator: PlayerPlaybackContextCoordinator,
     internal val playerRecoveryCoordinator: PlayerRecoveryCoordinator,
     internal val playerRecoveryExecutionCoordinator: PlayerRecoveryExecutionCoordinator,
+    internal val channelsDvrClient: ChannelsDvrClient,
 ) : ViewModel() {
     companion object {
         private const val MIN_WATCHED_FOR_AUTO_PLAY_MS = 5_000L
@@ -212,6 +216,8 @@ class PlayerViewModel @Inject constructor(
     internal val livePlaybackRecordCoordinator =
         LivePlaybackRecordCoordinator(playbackHistoryCoordinator::recordPlayback)
     private var currentStreamClassLabel: String = "Primary"
+    internal val channelsProgressMutex = Mutex()
+    internal var lastSyncedChannelsProgress: Pair<String, Long>? = null
     internal var lastRecordedVariantObservationSignature: String? = null
     internal var lastRecordedVodVariantObservationSignature: String? = null
     internal val playbackSessionCoordinator = PlaybackSessionCoordinator(viewModelScope)
@@ -1211,21 +1217,41 @@ class PlayerViewModel @Inject constructor(
                 // Check for resume position after the player is fully prepared (VOD only).
                 // Doing this after preparePlayer ensures pause() acts on the live player instance,
                 // not a stale one that may have already been replaced by prepareInternal().
-                if (showResumePrompt && currentContentType != ContentType.LIVE && currentContentId != -1L && currentProviderId != -1L) {
-                    val history = playbackHistoryCoordinator.getPlaybackHistory(
-                        contentId = currentContentId,
-                        contentType = currentContentType,
-                        providerId = currentProviderId,
-                        seriesId = currentSeriesId,
-                        seasonNumber = currentSeasonNumber,
-                        episodeNumber = currentEpisodeNumber
-                    )
+                if (showResumePrompt && currentContentType != ContentType.LIVE) {
+                    val channelsPlayback = channelsDvrClient.playbackIdentity(playbackLogicalUrl) != null
+                    val channelsPlaybackState = if (channelsPlayback) {
+                        runCatching { channelsDvrClient.loadPlaybackState(playbackLogicalUrl) }
+                            .onFailure { error ->
+                                android.util.Log.w("PlayerVM", "Channels DVR resume lookup failed", error)
+                            }
+                            .getOrNull()
+                    } else {
+                        null
+                    }
+                    val history = if (!channelsPlayback && currentContentId != -1L && currentProviderId != -1L) {
+                        playbackHistoryCoordinator.getPlaybackHistory(
+                            contentId = currentContentId,
+                            contentType = currentContentType,
+                            providerId = currentProviderId,
+                            seriesId = currentSeriesId,
+                            seasonNumber = currentSeasonNumber,
+                            episodeNumber = currentEpisodeNumber
+                        )
+                    } else {
+                        null
+                    }
                     if (isActivePlaybackSession(requestVersion, playbackLogicalUrl)) {
-                        if (history != null && history.resumePositionMs > 5000L && !isPlaybackComplete(history.resumePositionMs, history.totalDurationMs)) {
+                        val resumePositionMs = channelsPlaybackState?.positionMs ?: history?.resumePositionMs
+                        val shouldOfferChannelsResume = channelsPlaybackState?.shouldOfferResume() == true
+                        val shouldOfferLocalResume = history?.let {
+                            it.resumePositionMs > 5_000L &&
+                                !isPlaybackComplete(it.resumePositionMs, it.totalDurationMs)
+                        } == true
+                        if (resumePositionMs != null && (shouldOfferChannelsResume || shouldOfferLocalResume)) {
                             playerEngine.pause()
                             _resumePrompt.value = ResumePromptState(
                                 show = true,
-                                positionMs = history.resumePositionMs,
+                                positionMs = resumePositionMs,
                                 title = currentTitle
                             )
                         }

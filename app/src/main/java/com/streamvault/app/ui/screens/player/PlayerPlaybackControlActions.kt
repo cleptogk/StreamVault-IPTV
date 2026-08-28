@@ -105,5 +105,8 @@ fun PlayerViewModel.pause() {
         playerEngine.pauseTimeshift()
     } else {
         playerEngine.pause()
+        if (currentContentType != ContentType.LIVE) {
+            queueForcedProgressFlush()
+        }
     }
 }

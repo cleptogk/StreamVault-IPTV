@@ -587,6 +587,18 @@ fun PlayerScreen(
                 if (nextEpisodeCountdownVisible) {
                     return@onPreviewKeyEvent false
                 }
+                if ((contentType != "LIVE" || isCatchUpPlayback) && !showControls && !anyOverlayVisible) {
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            if (isRtl) viewModel.seekForward() else viewModel.seekBackward()
+                            return@onPreviewKeyEvent true
+                        }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            if (isRtl) viewModel.seekBackward() else viewModel.seekForward()
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                }
                 if (contentType != "LIVE") {
                     return@onPreviewKeyEvent false
                 }

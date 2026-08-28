@@ -25,7 +25,7 @@ internal object SportsWallRecordingPolicy {
             uri.scheme !in setOf("http", "https") || !allowedHost || uri.port != 8089 ||
             uri.userInfo != null || uri.fragment != null ||
             (directGrowingStream && (!recording.inProgress || !uri.query.isNullOrBlank())) ||
-            (nativeHlsStream && (recording.inProgress || uri.rawQuery != NATIVE_COPY_QUERY)) ||
+            (nativeHlsStream && uri.rawQuery != NATIVE_COPY_QUERY) ||
             (!directGrowingStream && !nativeHlsStream && !uri.query.isNullOrBlank()) ||
             pathId != recording.id
         ) {
@@ -38,18 +38,15 @@ internal object SportsWallRecordingPolicy {
 
     /**
      * Completed recordings use Channels DVR's lossless native-copy HLS
-     * rendition. In-progress recordings use the direct growing MPEG-TS path;
-     * transcoded HLS cannot generate segments quickly enough to stay current.
+     * rendition. The indexed native-copy playlist is also used while a recording
+     * is active so Media3 has a stable full-recording timeline for 30-second seeks.
      */
     fun preferNativeVideo(recording: SportsWallRecording): SportsWallRecording {
         validate(recording)
         val uri = URI(recording.playbackUrl)
         return recording.copy(
-            playbackUrl = if (recording.inProgress) {
-                "${uri.scheme}://${uri.host}:${uri.port}/dvr/files/${recording.id}/stream.mpg"
-            } else {
+            playbackUrl =
                 "${uri.scheme}://${uri.host}:${uri.port}/dvr/files/${recording.id}/hls/stream.m3u8?$NATIVE_COPY_QUERY"
-            }
         )
     }
 }

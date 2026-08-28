@@ -44,7 +44,10 @@ class DownloadsRecordingPolicyTest {
                 "acodec=aac&indexed=true&ssize=1&vcodec=copy"
         )
         assertThat(active.streamUrl)
-            .isEqualTo("http://10.217.0.120:8089/dvr/files/866/stream.mpg")
+            .isEqualTo(
+                "http://10.217.0.120:8089/dvr/files/866/hls/stream.m3u8?" +
+                    "acodec=aac&indexed=true&ssize=1&vcodec=copy"
+            )
         assertThat(completed.returnRoute).isEqualTo(Routes.DOWNLOADS)
         assertThat(active.returnRoute).isEqualTo(Routes.DOWNLOADS)
         assertThat(completed.contentType).isEqualTo("VOD")

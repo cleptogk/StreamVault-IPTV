@@ -51,7 +51,17 @@ it. A 1080p recording should report `1920×1080`; a channel that is natively
 720p should remain `1280×720` rather than being falsely upscaled.
 Channels' `corrupted` marker is diagnostic only: Channels may set it for a
 single bad frame, so completed and processed recordings remain listed and
-playable. Cancelled or incomplete recordings remain excluded.
+playable. Healthy active recordings remain playable; cancelled recordings and
+incomplete files without a matching healthy DVR job remain unavailable.
+
+Fullscreen recording playback reads Channels' saved `playback_time` and offers
+Start Over or Resume when the server still considers the item unwatched.
+StreamVault writes the current whole-second position about every five seconds
+while playing and at pause, exit, background, and content-switch boundaries.
+The write uses Channels' compatibility endpoint
+`PUT /dvr/files/{id}/playback_time/{seconds}`; a failed sync is logged but never
+stops playback. StreamVault does not call the explicit watch/unwatch endpoints
+or substitute its generic 95% completion rule for Channels' server decision.
 
 ### Dedicated SMB profile
 
