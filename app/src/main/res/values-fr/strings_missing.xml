@@ -131,7 +131,7 @@
     <string name="download_notification_channel_description">Shows download progress and completion</string>
     <string name="download_in_progress">Downloading %s</string>
     <string name="download_progress">%1$s / %2$s</string>
-    <string name="nav_downloads">Downloads</string>
+    <string name="nav_downloads">Recordings</string>
     <string name="downloads_empty">No downloads yet</string>
     <string name="downloads_loading">Loading downloads...</string>
     <string name="downloads_empty_title">No downloads yet</string>

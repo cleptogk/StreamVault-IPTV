@@ -175,7 +175,7 @@
     <string name="download_notification_channel_description">يعرض تقدّم التنزيل واكتماله</string>
     <string name="download_in_progress">جارٍ تنزيل %s</string>
     <string name="download_progress">%1$s / %2$s</string>
-    <string name="nav_downloads">التنزيلات</string>
+    <string name="nav_downloads">Recordings</string>
     <string name="downloads_empty">لا توجد تنزيلات بعد</string>
     <string name="downloads_loading">جارٍ تحميل التنزيلات…</string>
     <string name="downloads_empty_title">لا توجد تنزيلات بعد</string>

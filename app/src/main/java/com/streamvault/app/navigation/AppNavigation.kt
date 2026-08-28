@@ -741,6 +741,7 @@ fun AppNavigation(mainActivity: MainActivity) {
         composable(Routes.DOWNLOADS) {
             DownloadsScreen(
                 onNavigate = { route -> tabNavigate(route) },
+                onPlayRecording = { request -> navController.navigateToPlayer(request) },
                 currentRoute = Routes.DOWNLOADS
             )
         }

@@ -223,11 +223,7 @@ internal class SportsWallApiServer(
         ?.takeIf { it.isNotBlank() }
         ?: throw SportsWallControlException("missing_$key", "The $key field must be a non-empty string")
 
-    private fun JsonObject.requiredRecording(): SportsWallRecording = SportsWallRecording(
-        id = requiredString("recordingId"),
-        title = requiredString("title"),
-        playbackUrl = requiredString("playbackUrl")
-    )
+    private fun JsonObject.requiredRecording(): SportsWallRecording = parseSportsWallRecording(this)
 
     private fun JsonObject.launchRequested(): Boolean = get("launch")?.jsonPrimitive?.booleanOrNull ?: true
 
@@ -260,6 +256,23 @@ internal class SportsWallApiServer(
         private val RECORDING_PANE_PATH = Regex("/v1/panes/([1-4])/recording")
         private val PRESET_PATH = Regex("/v1/presets/([1-3])/(save|load)")
     }
+}
+
+internal fun parseSportsWallRecording(value: JsonObject): SportsWallRecording = SportsWallRecording(
+    id = value.requiredRecordingString("recordingId"),
+    title = value.requiredRecordingString("title"),
+    playbackUrl = value.requiredRecordingString("playbackUrl"),
+    inProgress = value.optionalRecordingBoolean("inProgress")
+)
+
+private fun JsonObject.requiredRecordingString(key: String): String = get(key)?.jsonPrimitive?.content
+    ?.takeIf { it.isNotBlank() }
+    ?: throw SportsWallControlException("missing_$key", "The $key field must be a non-empty string")
+
+private fun JsonObject.optionalRecordingBoolean(key: String): Boolean {
+    val value = get(key) ?: return false
+    return (value as? JsonPrimitive)?.takeUnless(JsonPrimitive::isString)?.booleanOrNull
+        ?: throw SportsWallControlException("invalid_$key", "The $key field must be a boolean")
 }
 
 private fun SportsWallChannelSummary.toJson(): JsonObject = buildJsonObject {

@@ -6,7 +6,7 @@ Sports Wall control project.
 ## Stable Android identity
 
 - Application ID: `com.cleptogk.streamvault.sportswall`
-- Release candidate: `1.0.17.24` (`versionCode` `1000041`)
+- Release candidate: `1.0.17.26` (`versionCode` `1000043`)
 - Update source: `cleptogk/StreamVault-IPTV` GitHub releases
 
 Android will accept an in-place update only when the application ID and signing
@@ -18,6 +18,14 @@ signing](https://developer.android.com/studio/publish/app-signing)).
 The upstream application (`com.streamvault.app`) is a separate installation.
 Installing, updating, or removing Sports Wall does not replace upstream
 StreamVault or TiviMate.
+
+Completed Channels DVR recordings use the exact allowlisted native-copy HLS
+rendition. Active recordings use only the matching direct growing
+`/dvr/files/{id}/stream.mpg` path, without query parameters; this avoids the
+segment-generation lag observed with transcoded HLS while a file is growing.
+The user-facing Recordings destination reads this same configured DVR source
+and playback policy; the legacy `downloads` route remains stable and local
+StreamVault downloads remain available in a separate section on that screen.
 
 ## Signed release build
 

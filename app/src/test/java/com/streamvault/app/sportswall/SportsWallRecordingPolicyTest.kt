@@ -23,6 +23,66 @@ class SportsWallRecordingPolicyTest {
     }
 
     @Test
+    fun rewritesInProgressRecordingToDirectGrowingStream() {
+        val recording = SportsWallRecordingPolicy.preferNativeVideo(
+            SportsWallRecording(
+                id = "866",
+                title = "Game in progress",
+                playbackUrl = "http://10.217.0.120:8089/dvr/files/866/hls/master.m3u8",
+                inProgress = true
+            )
+        )
+
+        assertThat(recording.playbackUrl).isEqualTo(
+            "http://10.217.0.120:8089/dvr/files/866/stream.mpg"
+        )
+        assertThat(recording.inProgress).isTrue()
+    }
+
+    @Test
+    fun acceptsMatchingDirectGrowingStreamForInProgressRecording() {
+        SportsWallRecordingPolicy.validate(
+            SportsWallRecording(
+                id = "866",
+                title = "Game in progress",
+                playbackUrl = "http://10.217.0.120:8089/dvr/files/866/stream.mpg",
+                inProgress = true
+            )
+        )
+    }
+
+    @Test
+    fun rejectsDirectGrowingStreamForCompletedRecording() {
+        val error = runCatching {
+            SportsWallRecordingPolicy.validate(
+                SportsWallRecording(
+                    id = "866",
+                    title = "Completed game",
+                    playbackUrl = "http://10.217.0.120:8089/dvr/files/866/stream.mpg"
+                )
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(SportsWallControlException::class.java)
+    }
+
+    @Test
+    fun rejectsQueryParametersOnDirectGrowingStream() {
+        val error = runCatching {
+            SportsWallRecordingPolicy.validate(
+                SportsWallRecording(
+                    id = "866",
+                    title = "Game in progress",
+                    playbackUrl = "http://10.217.0.120:8089/dvr/files/866/stream.mpg?bitrate=8000",
+                    inProgress = true
+                )
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(SportsWallControlException::class.java)
+    }
+
+    @Test
     fun rejectsUnapprovedNativePlaylistParameters() {
         val error = runCatching {
             SportsWallRecordingPolicy.validate(

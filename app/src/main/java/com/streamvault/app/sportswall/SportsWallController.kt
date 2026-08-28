@@ -31,7 +31,8 @@ data class SportsWallChannelSummary(
 data class SportsWallRecording(
     val id: String,
     val title: String,
-    val playbackUrl: String
+    val playbackUrl: String,
+    val inProgress: Boolean = false
 )
 
 data class SportsWallPaneState(

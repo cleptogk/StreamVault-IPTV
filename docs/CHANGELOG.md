@@ -2,6 +2,33 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17.26-sports-wall]
+
+### Added
+
+- Populate the renamed Recordings destination from the configured Channels DVR
+  library, with loading, empty, configuration, retry, and error states.
+- Show completed recordings, healthy active recordings, unavailable incomplete
+  items, and recordings carrying Channels' informational `corrupted` marker.
+
+### Changed
+
+- Open playable Channels DVR items in StreamVault's normal single fullscreen
+  player using the existing secured native HLS or direct growing-stream policy.
+- Preserve the legacy `downloads` route and all true local-download playback,
+  resume, deletion, and folder controls in a separate Local downloads section.
+
+## [1.0.17.25-sports-wall]
+
+### Changed
+
+- Distinguish active Channels DVR recordings in authenticated Sports Wall API
+  playback requests.
+- Play active recordings from Channels DVR's matching direct growing MPEG-TS
+  path while completed recordings continue to use native video-copy HLS.
+- Reject the direct growing path for completed recordings, mismatched recording
+  IDs, and any request containing query parameters.
+
 ## [1.0.17.24-sports-wall]
 
 ### Fixed
