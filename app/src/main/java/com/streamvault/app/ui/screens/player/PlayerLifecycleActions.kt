@@ -48,14 +48,10 @@ internal fun PlayerViewModel.queueContentSwitchProgressFlush(): Job? {
  * ignore the return value.
  */
 internal fun PlayerViewModel.queueForcedProgressFlush(): Job? {
-    if (currentContentType == ContentType.LIVE) return null
-    return viewModelScope.launch {
-        persistPlaybackProgress()
-        logRepositoryFailure(
-            operation = "Flush pending playback progress at lifecycle boundary",
-            result = playbackHistoryCoordinator.flushPendingProgress()
-        )
-    }
+    // Snapshot the outgoing URL and position before the coroutine is queued. Reading
+    // currentStreamUrl later can pair the next recording's URL with the previous
+    // player's position during an Activity/content transition.
+    return queueContentSwitchProgressFlush()
 }
 
 internal fun PlayerViewModel.startProgressTracking() {

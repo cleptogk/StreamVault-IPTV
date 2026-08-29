@@ -88,6 +88,7 @@ import com.streamvault.player.PlayerTrack
 import com.streamvault.player.TrackType
 import com.streamvault.player.AUDIO_VIDEO_OFFSET_MAX_MS
 import com.streamvault.player.AUDIO_VIDEO_OFFSET_MIN_MS
+import kotlinx.coroutines.delay
 import java.util.Locale
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
@@ -1421,16 +1422,21 @@ fun PlayerResumePrompt(
     val resumeFocusRequester = remember(title) { FocusRequester() }
 
     LaunchedEffect(title) {
-        resumeFocusRequester.requestFocusSafely(
+        // Let the dialog attach before claiming TV focus. Start-over is the safe,
+        // spoiler-free default; Right moves to Resume.
+        delay(100)
+        startOverFocusRequester.requestFocusSafely(
             tag = "PlayerResumePrompt",
-            target = "Resume button"
+            target = "Start from beginning button"
         )
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f)),
+            // Keep the prepared resume frame completely hidden so an in-progress
+            // game's current score cannot be revealed before the viewer chooses.
+            .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
         Column(

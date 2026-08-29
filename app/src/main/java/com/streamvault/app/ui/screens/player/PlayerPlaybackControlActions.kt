@@ -80,9 +80,9 @@ fun PlayerViewModel.toggleAspectRatio() {
 fun PlayerViewModel.dismissResumePrompt(resume: Boolean) {
     val prompt = _resumePrompt.value
     _resumePrompt.value = ResumePromptState()
-    if (resume && prompt.positionMs > 0) {
-        playerEngine.seekTo(prompt.positionMs)
-    }
+    // Channels HLS can carry EXT-X-START from server-side playback history, so
+    // "Start from beginning" must explicitly seek to zero rather than merely play.
+    playerEngine.seekTo(if (resume) prompt.positionMs.coerceAtLeast(0L) else 0L)
     playerEngine.play()
 }
 
