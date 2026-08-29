@@ -378,6 +378,7 @@ class PlayerViewModel @Inject constructor(
     internal var lastCompletedThumbnailPreloadKey: String? = null
     private var lowBandwidthMonitorJob: Job? = null
     internal var progressTrackingJob: Job? = null
+    internal var resumePromptSelectionJob: Job? = null
     internal var tokenRenewalJob: Job? = null
     internal var stopPlaybackTimerJob: Job? = null
     internal var idleStandbyTimerJob: Job? = null

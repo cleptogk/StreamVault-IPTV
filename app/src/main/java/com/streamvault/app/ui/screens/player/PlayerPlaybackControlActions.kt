@@ -4,7 +4,9 @@ import android.os.SystemClock
 import androidx.lifecycle.viewModelScope
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Episode
+import com.streamvault.player.PlaybackState
 import com.streamvault.player.timeshift.LiveTimeshiftStatus
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val PLAYBACK_CONTROL_MUTE_TOGGLE_DEBOUNCE_MS = 250L
@@ -78,12 +80,39 @@ fun PlayerViewModel.toggleAspectRatio() {
 }
 
 fun PlayerViewModel.dismissResumePrompt(resume: Boolean) {
+    if (resumePromptSelectionJob?.isActive == true) return
     val prompt = _resumePrompt.value
-    _resumePrompt.value = ResumePromptState()
-    // Channels HLS can carry EXT-X-START from server-side playback history, so
-    // "Start from beginning" must explicitly seek to zero rather than merely play.
-    playerEngine.seekTo(if (resume) prompt.positionMs.coerceAtLeast(0L) else 0L)
-    playerEngine.play()
+    val playbackUrl = currentStreamUrl
+    val requestVersion = prepareRequestVersion
+    resumePromptSelectionJob = viewModelScope.launch {
+        try {
+            playerEngine.pause()
+            if (!resume && channelsDvrClient.playbackIdentity(playbackUrl) != null) {
+                runCatching { channelsDvrClient.updatePlaybackPosition(playbackUrl, 0L) }
+                    .onFailure { error ->
+                        android.util.Log.w("PlayerVM", "Channels DVR start-over reset failed", error)
+                    }
+            }
+            val state = playerEngine.playbackState.first {
+                it == PlaybackState.READY ||
+                    it == PlaybackState.ERROR ||
+                    it == PlaybackState.ENDED
+            }
+            if (
+                state != PlaybackState.READY ||
+                !isActivePlaybackSession(requestVersion, playbackUrl)
+            ) {
+                return@launch
+            }
+            // Channels HLS can carry EXT-X-START from server-side playback history.
+            // Seek only after Media3 is ready or the early seek is silently ignored.
+            playerEngine.seekTo(if (resume) prompt.positionMs.coerceAtLeast(0L) else 0L)
+            _resumePrompt.value = ResumePromptState()
+            playerEngine.play()
+        } finally {
+            resumePromptSelectionJob = null
+        }
+    }
 }
 
 fun PlayerViewModel.play() {
