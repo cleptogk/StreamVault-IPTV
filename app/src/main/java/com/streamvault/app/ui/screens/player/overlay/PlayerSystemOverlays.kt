@@ -1474,7 +1474,7 @@ fun PlayerResumePrompt(
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = SurfaceElevated,
-                        focusedContainerColor = SurfaceHighlight
+                        focusedContainerColor = Primary
                     ),
                     modifier = Modifier
                         .weight(1f)
@@ -1497,8 +1497,8 @@ fun PlayerResumePrompt(
                     onClick = onResume,
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Primary,
-                        focusedContainerColor = PrimaryLight
+                        containerColor = SurfaceElevated,
+                        focusedContainerColor = Primary
                     ),
                     modifier = Modifier
                         .weight(1f)
