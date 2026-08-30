@@ -46,7 +46,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import coil3.compose.AsyncImage
 import com.streamvault.app.R
 import com.streamvault.app.navigation.PlayerNavigationRequest
@@ -58,6 +61,9 @@ import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.design.AppColors
 import com.streamvault.domain.model.DownloadItem
 import com.streamvault.domain.model.DownloadStatus
+import kotlinx.coroutines.delay
+
+private const val CHANNELS_RECORDINGS_REFRESH_INTERVAL_MS = 15_000L
 
 @Composable
 fun DownloadsScreen(
@@ -69,8 +75,21 @@ fun DownloadsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(viewModel::onFolderSelected)
+    }
+
+    // Channels changes incomplete recordings in place as they finalize. Refresh
+    // immediately when this destination enters composition, then keep the visible
+    // library current so an old "Unavailable" snapshot cannot survive completion.
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                viewModel.refreshChannelsRecordings()
+                delay(CHANNELS_RECORDINGS_REFRESH_INTERVAL_MS)
+            }
+        }
     }
 
     HandleDownloadsUserMessage(

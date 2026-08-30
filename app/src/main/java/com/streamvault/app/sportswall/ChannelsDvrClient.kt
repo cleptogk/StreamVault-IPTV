@@ -250,7 +250,12 @@ class ChannelsDvrClient @Inject constructor(
         val id = row.string("id") ?: row.string("ID") ?: row.string("recording_id") ?: return null
         if (!isValidRecordingId(id)) return null
         val incomplete = row.boolean("completed") == false || row.boolean("processed") == false
-        val inProgress = incomplete && id in activeFileIds
+        // A delayed Channels recording can remain incomplete and retain a stale
+        // job error after its replacement stream is already playable. Channels
+        // exposes the delayed file through HLS and its own client at that point,
+        // so treat the recording lifecycle flag as authoritative for playback.
+        val delayed = row.boolean("delayed") == true
+        val inProgress = incomplete && (id in activeFileIds || delayed)
         val title = row.string("event_title") ?: row.string("title") ?: row.string("name") ?: id
         val cleanTitle = title.replace('\n', ' ').replace('\r', ' ').trim().take(256)
         if (cleanTitle.isBlank()) return null

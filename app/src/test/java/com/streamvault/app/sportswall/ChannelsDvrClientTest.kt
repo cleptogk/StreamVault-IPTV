@@ -26,6 +26,51 @@ class ChannelsDvrClientTest {
     }
 
     @Test
+    fun `completed processed Timbers recording is playable`() {
+        val row = Json.parseToJsonElement(
+            """{
+                "id": "864",
+                "title": "Portland Timbers vs LAFC",
+                "completed": true,
+                "processed": true,
+                "cancelled": false,
+                "corrupted": false,
+                "duration": 5070.001678,
+                "path": "/recordings/TV/Portland Timbers vs LAFC/game.mpg"
+            }""".trimIndent()
+        )
+
+        assertThat(client.parseRecording(row)).isEqualTo(
+            ChannelsDvrRecording(id = "864", title = "Portland Timbers vs LAFC")
+        )
+    }
+
+    @Test
+    fun `delayed Timbers recording remains playable despite incomplete lifecycle`() {
+        val row = Json.parseToJsonElement(
+            """{
+                "id": "870",
+                "title": "Austin FC vs Portland Timbers",
+                "delayed": true,
+                "completed": false,
+                "processed": false,
+                "cancelled": false,
+                "corrupted": false,
+                "path": "/recordings/TV/Austin FC vs Portland Timbers/game.mpg"
+            }""".trimIndent()
+        )
+
+        assertThat(client.parseRecording(row)).isEqualTo(
+            ChannelsDvrRecording(
+                id = "870",
+                title = "Austin FC vs Portland Timbers",
+                inProgress = true,
+                playable = true
+            )
+        )
+    }
+
+    @Test
     fun `cancelled recording remains hidden even when marked corrupted`() {
         val row = Json.parseToJsonElement(
             """{
